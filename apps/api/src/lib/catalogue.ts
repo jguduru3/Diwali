@@ -1,5 +1,5 @@
 import { eq, sql } from 'drizzle-orm';
-import type { Category, Item } from '@pataka/shared';
+import { effectivePrice, type Category, type Item } from '@pataka/shared';
 import type { Db } from '../db/client';
 import { categories, items, shopPriceVersions } from '../db/schema';
 
@@ -26,7 +26,11 @@ export async function bumpPriceVersion(db: Db | Tx, shopId: string): Promise<num
   return row!.version;
 }
 
-export function itemView(row: typeof items.$inferSelect): Item {
+/** Product photo URL: an uploaded photo (served by /api/media) wins over an external URL. */
+export const itemImageUrl = (row: Pick<typeof items.$inferSelect, 'imagePath' | 'imageUrl'>) =>
+  row.imagePath ? `/api/media/${row.imagePath}` : row.imageUrl;
+
+export function itemView(row: typeof items.$inferSelect, now = new Date()): Item {
   return {
     id: row.id,
     itemNo: row.itemNo,
@@ -39,7 +43,12 @@ export function itemView(row: typeof items.$inferSelect): Item {
     greenCert: row.greenCert,
     greenRef: row.greenRef,
     rackCode: row.rackCode,
-    imageUrl: row.imageUrl,
+    imageUrl: itemImageUrl(row),
+    barcode: row.barcode,
+    stockQty: row.stockQty,
+    offerPricePaise: row.offerPricePaise,
+    offerEndsAt: row.offerEndsAt?.toISOString() ?? null,
+    effectivePricePaise: effectivePrice(row, now),
     isSoldOut: row.isSoldOut,
     isActive: row.isActive,
   };

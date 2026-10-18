@@ -27,7 +27,7 @@ export interface PaymentProvider {
   createCheckout(input: {
     idempotencyKey: string;
     amountPaise: number;
-    passRef: string;
+    reference: string;
   }): Promise<{ checkoutId: string; url: string }>;
   /** Throws WebhookSignatureError unless the raw body carries a valid signature. */
   verifyWebhook(rawBody: string, headers: HeaderReader): ProviderEvent;

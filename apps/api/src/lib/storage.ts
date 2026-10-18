@@ -5,21 +5,25 @@ import { BlobServiceClient } from '@azure/storage-blob';
 import { env } from './env';
 
 /**
- * Licence images live in a PRIVATE store (SPEC §10). In Azure that is the
- * `licences` blob container, reached with the Function App's managed identity.
- * Locally (no STORAGE_ACCOUNT_NAME) files go to UPLOAD_DIR or ./.uploads.
- * Images are only ever read back through the admin-only API, never by URL.
+ * Two stores (SPEC §10): `licences` is PRIVATE — licence photos are only read
+ * back through the admin-only API. `shop-media` holds product photos, served
+ * publicly through GET /api/media. In Azure these are blob containers reached
+ * with the Function App's managed identity; locally (no STORAGE_ACCOUNT_NAME)
+ * files go to UPLOAD_DIR or ./.uploads.
  */
 export interface FileStore {
   put(path: string, data: Buffer, contentType: string): Promise<void>;
   get(path: string): Promise<{ data: Buffer; contentType: string } | null>;
 }
 
-const CONTAINER = 'licences';
+export type Container = 'licences' | 'shop-media';
 
 class BlobStore implements FileStore {
   private readonly client: BlobServiceClient;
-  constructor(account: string) {
+  constructor(
+    account: string,
+    private readonly container: Container,
+  ) {
     this.client = new BlobServiceClient(
       `https://${account}.blob.core.windows.net`,
       new DefaultAzureCredential(),
@@ -27,12 +31,12 @@ class BlobStore implements FileStore {
   }
   async put(path: string, data: Buffer, contentType: string) {
     await this.client
-      .getContainerClient(CONTAINER)
+      .getContainerClient(this.container)
       .getBlockBlobClient(path)
       .uploadData(data, { blobHTTPHeaders: { blobContentType: contentType } });
   }
   async get(path: string) {
-    const blob = this.client.getContainerClient(CONTAINER).getBlockBlobClient(path);
+    const blob = this.client.getContainerClient(this.container).getBlockBlobClient(path);
     if (!(await blob.exists())) return null;
     const props = await blob.getProperties();
     return { data: await blob.downloadToBuffer(), contentType: props.contentType ?? 'image/jpeg' };
@@ -40,7 +44,10 @@ class BlobStore implements FileStore {
 }
 
 class LocalStore implements FileStore {
-  private readonly root = resolve(env.uploadDir() ?? '.uploads', CONTAINER);
+  private readonly root: string;
+  constructor(container: Container) {
+    this.root = resolve(env.uploadDir() ?? '.uploads', container);
+  }
   private file(path: string) {
     const full = resolve(this.root, path);
     if (!full.startsWith(this.root)) throw new Error('Invalid path');
@@ -66,14 +73,20 @@ class LocalStore implements FileStore {
   }
 }
 
-let store: FileStore | undefined;
-export function fileStore(): FileStore {
+const stores = new Map<Container, FileStore>();
+export function fileStore(container: Container = 'licences'): FileStore {
+  let store = stores.get(container);
   if (!store) {
     const account = env.storageAccountName();
-    store = account ? new BlobStore(account) : new LocalStore();
+    store = account ? new BlobStore(account, container) : new LocalStore(container);
+    stores.set(container, store);
   }
   return store;
 }
+
+/** Product photo path in shop-media; a new name per upload so caches never go stale. */
+export const itemImagePath = (shopId: string, id: string, ext: string) =>
+  `items/${shopId}/${id}.${ext}`;
 
 export const licenceBlobPath = (shopId: string, id: string, ext: string) =>
   join(shopId, `${id}.${ext}`).replace(/\\/g, '/');

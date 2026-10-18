@@ -132,9 +132,7 @@
         "categories_slug_unique": {
           "name": "categories_slug_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "slug"
-          ]
+          "columns": ["slug"]
         }
       },
       "policies": {},
@@ -178,12 +176,8 @@
           "name": "cluster_marshals_cluster_id_clusters_id_fk",
           "tableFrom": "cluster_marshals",
           "tableTo": "clusters",
-          "columnsFrom": [
-            "cluster_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["cluster_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -191,12 +185,8 @@
           "name": "cluster_marshals_user_id_users_id_fk",
           "tableFrom": "cluster_marshals",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -204,10 +194,7 @@
       "compositePrimaryKeys": {
         "cluster_marshals_cluster_id_user_id_pk": {
           "name": "cluster_marshals_cluster_id_user_id_pk",
-          "columns": [
-            "cluster_id",
-            "user_id"
-          ]
+          "columns": ["cluster_id", "user_id"]
         }
       },
       "uniqueConstraints": {},
@@ -355,12 +342,8 @@
           "name": "consents_user_id_users_id_fk",
           "tableFrom": "consents",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -513,12 +496,8 @@
           "name": "items_shop_id_shops_id_fk",
           "tableFrom": "items",
           "tableTo": "shops",
-          "columnsFrom": [
-            "shop_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["shop_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -526,12 +505,8 @@
           "name": "items_category_id_categories_id_fk",
           "tableFrom": "items",
           "tableTo": "categories",
-          "columnsFrom": [
-            "category_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["category_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -796,12 +771,8 @@
           "name": "shop_licences_shop_id_shops_id_fk",
           "tableFrom": "shop_licences",
           "tableTo": "shops",
-          "columnsFrom": [
-            "shop_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["shop_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -809,12 +780,8 @@
           "name": "shop_licences_verified_by_users_id_fk",
           "tableFrom": "shop_licences",
           "tableTo": "users",
-          "columnsFrom": [
-            "verified_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["verified_by"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -869,12 +836,8 @@
           "name": "shop_members_shop_id_shops_id_fk",
           "tableFrom": "shop_members",
           "tableTo": "shops",
-          "columnsFrom": [
-            "shop_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["shop_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         },
@@ -882,12 +845,8 @@
           "name": "shop_members_user_id_users_id_fk",
           "tableFrom": "shop_members",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -895,10 +854,7 @@
       "compositePrimaryKeys": {
         "shop_members_shop_id_user_id_pk": {
           "name": "shop_members_shop_id_user_id_pk",
-          "columns": [
-            "shop_id",
-            "user_id"
-          ]
+          "columns": ["shop_id", "user_id"]
         }
       },
       "uniqueConstraints": {},
@@ -949,12 +905,8 @@
           "name": "shop_price_versions_shop_id_shops_id_fk",
           "tableFrom": "shop_price_versions",
           "tableTo": "shops",
-          "columnsFrom": [
-            "shop_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["shop_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -1070,12 +1022,8 @@
           "name": "shops_cluster_id_clusters_id_fk",
           "tableFrom": "shops",
           "tableTo": "clusters",
-          "columnsFrom": [
-            "cluster_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["cluster_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -1085,9 +1033,7 @@
         "shops_short_code_unique": {
           "name": "shops_short_code_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "short_code"
-          ]
+          "columns": ["short_code"]
         }
       },
       "policies": {},
@@ -1171,9 +1117,7 @@
         "users_phone_e164_unique": {
           "name": "users_phone_e164_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "phone_e164"
-          ]
+          "columns": ["phone_e164"]
         }
       },
       "policies": {},
@@ -1185,33 +1129,17 @@
     "public.green_cert_type": {
       "name": "green_cert_type",
       "schema": "public",
-      "values": [
-        "CSIR_NEERI_SWAS",
-        "CSIR_NEERI_STAR",
-        "CSIR_NEERI_SAFAL",
-        "CSIR_NEERI_OTHER"
-      ]
+      "values": ["CSIR_NEERI_SWAS", "CSIR_NEERI_STAR", "CSIR_NEERI_SAFAL", "CSIR_NEERI_OTHER"]
     },
     "public.licence_status": {
       "name": "licence_status",
       "schema": "public",
-      "values": [
-        "pending",
-        "verified",
-        "rejected",
-        "expired"
-      ]
+      "values": ["pending", "verified", "rejected", "expired"]
     },
     "public.user_role": {
       "name": "user_role",
       "schema": "public",
-      "values": [
-        "customer",
-        "shop_owner",
-        "shop_staff",
-        "marshal",
-        "admin"
-      ]
+      "values": ["customer", "shop_owner", "shop_staff", "marshal", "admin"]
     }
   },
   "schemas": {},

@@ -186,7 +186,12 @@ export type ProposeAlternate = z.input<typeof proposeAlternateSchema>;
 
 export const qrInputSchema = z.object({ qr: z.string().trim().min(1).max(80) }).strict();
 export const cardPaymentSchema = z
-  .object({ approvalCode: z.string().trim().regex(/^[A-Za-z0-9-]{4,20}$/, 'Approval code') })
+  .object({
+    approvalCode: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z0-9-]{4,20}$/, 'Approval code'),
+  })
   .strict();
 export const cashPaymentSchema = z
   .object({ receivedPaise: z.number().int().positive().max(100_000_000) })
@@ -262,7 +267,12 @@ export const billSchema = z.object({
     phone: z.string().nullable(),
   }),
   lines: z.array(
-    z.object({ nameEn: z.string(), qty: z.number(), unitPricePaise: z.number(), totalPaise: z.number() }),
+    z.object({
+      nameEn: z.string(),
+      qty: z.number(),
+      unitPricePaise: z.number(),
+      totalPaise: z.number(),
+    }),
   ),
   totalPaise: z.number(),
   payment: z.object({ method: counterMethodSchema, reference: z.string().nullable() }),
@@ -296,15 +306,17 @@ export const customerOrderSchema = z.object({
 });
 export type CustomerOrder = z.infer<typeof customerOrderSchema>;
 
-export const customerOrderSummarySchema = customerOrderSchema.pick({
-  id: true,
-  code: true,
-  status: true,
-  estimatedTotalPaise: true,
-  finalTotalPaise: true,
-  placedAt: true,
-  packNo: true,
-}).extend({ shopName: z.string(), lineCount: z.number() });
+export const customerOrderSummarySchema = customerOrderSchema
+  .pick({
+    id: true,
+    code: true,
+    status: true,
+    estimatedTotalPaise: true,
+    finalTotalPaise: true,
+    placedAt: true,
+    packNo: true,
+  })
+  .extend({ shopName: z.string(), lineCount: z.number() });
 export type CustomerOrderSummary = z.infer<typeof customerOrderSummarySchema>;
 
 export const orderQrResponseSchema = z.object({ orderId: z.string().uuid(), qr: z.string() });
@@ -348,16 +360,18 @@ export const staffOrderSchema = z.object({
 });
 export type StaffOrder = z.infer<typeof staffOrderSchema>;
 
-export const staffOrderSummarySchema = staffOrderSchema.pick({
-  id: true,
-  code: true,
-  status: true,
-  customer: true,
-  estimatedTotalPaise: true,
-  packNo: true,
-  placedAt: true,
-  confirmBy: true,
-}).extend({ lineCount: z.number(), openDecisions: z.number() });
+export const staffOrderSummarySchema = staffOrderSchema
+  .pick({
+    id: true,
+    code: true,
+    status: true,
+    customer: true,
+    estimatedTotalPaise: true,
+    packNo: true,
+    placedAt: true,
+    confirmBy: true,
+  })
+  .extend({ lineCount: z.number(), openDecisions: z.number() });
 export type StaffOrderSummary = z.infer<typeof staffOrderSummarySchema>;
 
 /** Returned once when packing finishes (and on reprint) for the sticker. */

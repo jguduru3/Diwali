@@ -44,21 +44,32 @@ export const env = {
     return istInstant(this.seasonEndDate(), '23:59');
   },
   /**
-   * Express Pass feature flag (SPEC_V2 §9). Off unless set; Bicep keeps it off
-   * in prod until the Telangana compliance review signs off.
+   * L1 legal gate (SPEC_V3 §2): online ordering is off unless set. Bicep keeps it
+   * off in prod until a written legal opinion clears it.
    */
-  passesEnabled(): boolean {
-    return process.env.PASSES_ENABLED === 'true';
+  orderingEnabled(): boolean {
+    return process.env.ORDERING_ENABLED === 'true';
   },
-  /** Rolling pass validity in hours; unset = valid until the season ends. */
-  passValidHours(): number | null {
-    const n = Number(process.env.PASS_VALID_HOURS);
-    return Number.isInteger(n) && n > 0 ? n : null;
+  /** Key for encrypting merchants' YouPI webhook secrets at rest. */
+  merchantSecretsKey(): string {
+    const key = process.env.MERCHANT_SECRETS_KEY;
+    if (key && key.length >= 32) return key;
+    if (this.isProd()) throw new Error('MERCHANT_SECRETS_KEY must be at least 32 characters');
+    return 'dev-only-merchant-secrets-key-change-me-0000';
+  },
+  /** Simulated counter UPI for merchants without YouPI settings (never in prod). */
+  mockCounterUpi(): boolean {
+    return !this.isProd();
+  },
+  /** Public origin used in links given to merchants (webhook URL). */
+  publicOrigin(): string {
+    return process.env.PUBLIC_ORIGIN || 'http://localhost:5173';
   },
   /** Payment provider adapter name. The mock provider is refused in prod. */
   paymentProvider(): string {
     const name = process.env.PAYMENT_PROVIDER || 'mock';
-    if (name === 'mock' && this.isProd()) throw new Error('The mock payment provider is not allowed in prod');
+    if (name === 'mock' && this.isProd())
+      throw new Error('The mock payment provider is not allowed in prod');
     return name;
   },
   mockPaymentSecret(): string {

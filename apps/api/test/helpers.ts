@@ -16,7 +16,6 @@ import {
   shopMembers,
   shopPriceVersions,
   shops,
-  slots,
   users,
 } from '../src/db/schema';
 import { otpRequestHandler, otpVerifyHandler } from '../src/functions/auth';
@@ -94,7 +93,7 @@ export async function makeAdmin(phone: string) {
 export async function makeShop(shortCode = 'SLC01') {
   const [cluster] = await getDb()
     .insert(clusters)
-    .values({ name: `Ground ${shortCode}`, area: 'Gachibowli', bayCount: 3 })
+    .values({ name: `Ground ${shortCode}`, area: 'Gachibowli' })
     .returning();
   const [shop] = await getDb()
     .insert(shops)
@@ -104,14 +103,11 @@ export async function makeShop(shortCode = 'SLC01') {
 }
 
 /**
- * A listed shop: live, verified in-date licence, two categories (one banned),
- * three items and one slot starting in 2 hours. Returns sessions for its owner,
- * counter staff and the cluster marshal.
+ * A listed shop: live, verified in-date licence, two categories (one banned)
+ * and four items — #1–#3 with barcodes BC<code>-1..3, #3 with stock 1, #4 with
+ * no barcode. Returns sessions for owner, staff, packer, cashier and marshal.
  */
-export async function makeListedShop(
-  shortCode = 'SLC01',
-  opts: { capacity?: number; slotStartsInMin?: number } = {},
-) {
+export async function makeListedShop(shortCode = 'SLC01') {
   const db = getDb();
   const { cluster, shop } = await makeShop(shortCode);
   await db
@@ -144,7 +140,7 @@ export async function makeListedShop(
   const itemRows = await db
     .insert(items)
     .values(
-      [1, 2, 3].map((n) => ({
+      [1, 2, 3, 4].map((n) => ({
         shopId: shop.id,
         itemNo: n,
         categoryId: allowed!.id,
@@ -153,37 +149,33 @@ export async function makeListedShop(
         greenCert: 'CSIR_NEERI_SWAS' as const,
         greenRef: `REF-${n}`,
         rackCode: `A${n}`,
+        barcode: n < 4 ? `BC${shortCode}-${n}` : null,
+        stockQty: n === 3 ? 1 : null,
       })),
     )
     .returning();
-  const startsAt = new Date(Date.now() + (opts.slotStartsInMin ?? 120) * 60_000);
-  const [slot] = await db
-    .insert(slots)
-    .values({
-      shopId: shop.id,
-      startsAt,
-      endsAt: new Date(startsAt.getTime() + 30 * 60_000),
-      capacity: opts.capacity ?? 10,
-    })
-    .returning();
-
   const owner = await makeUser('shop_owner');
   const staff = await makeUser('shop_staff');
+  const packer = await makeUser('shop_packer');
+  const cashier = await makeUser('shop_cashier');
   const marshal = await makeUser('marshal');
   await db.insert(shopMembers).values([
     { shopId: shop.id, userId: owner.user.id, role: 'shop_owner' },
     { shopId: shop.id, userId: staff.user.id, role: 'shop_staff' },
+    { shopId: shop.id, userId: packer.user.id, role: 'shop_packer' },
+    { shopId: shop.id, userId: cashier.user.id, role: 'shop_cashier' },
   ]);
   await db.insert(clusterMarshals).values({ clusterId: cluster.id, userId: marshal.user.id });
   return {
     cluster,
     shop,
-    slot: slot!,
     items: itemRows,
     allowedCategory: allowed!,
     bannedCategory: banned!,
     owner,
     staff,
+    packer,
+    cashier,
     marshal,
   };
 }

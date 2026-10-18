@@ -1,5 +1,5 @@
-// Data model (SPEC §6, SPEC_V2 §6). Never add item lists, quantities or sale
-// amounts anywhere (G1, G4). The only money stored is the flat pass fee.
+// Data model (SPEC §6, SPEC_V3 §9). Orders are priced by the server (G11); the
+// platform's only revenue is its flat fee (G3, G4).
 import { sql } from 'drizzle-orm';
 import {
   boolean,
@@ -21,24 +21,26 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import {
+  COUNTER_METHODS,
+  COUNTER_PAYMENT_STATUSES,
+  FEE_PAYMENT_STATUSES,
+  FEE_REFUND_STATUSES,
   GREEN_CERTS,
   LICENCE_STATUSES,
-  PASS_STATUSES,
-  PAYMENT_STATUSES,
-  REFUND_STATUSES,
+  LINE_STATUSES,
+  ORDER_STATUSES,
   ROLES,
-  SCAN_FLAGS,
-  SCAN_RESULTS,
 } from '@pataka/shared';
 
 export const userRole = pgEnum('user_role', ROLES);
 export const licenceStatus = pgEnum('licence_status', LICENCE_STATUSES);
 export const greenCertType = pgEnum('green_cert_type', GREEN_CERTS);
-export const passStatus = pgEnum('pass_status', PASS_STATUSES);
-export const paymentStatus = pgEnum('payment_status', PAYMENT_STATUSES);
-export const refundStatus = pgEnum('refund_status', REFUND_STATUSES);
-export const scanResult = pgEnum('scan_result', SCAN_RESULTS);
-export const scanFlag = pgEnum('scan_flag', SCAN_FLAGS);
+export const orderStatus = pgEnum('order_status', ORDER_STATUSES);
+export const lineStatus = pgEnum('line_status', LINE_STATUSES);
+export const feePaymentStatus = pgEnum('fee_payment_status', FEE_PAYMENT_STATUSES);
+export const feeRefundStatus = pgEnum('fee_refund_status', FEE_REFUND_STATUSES);
+export const counterMethod = pgEnum('counter_method', COUNTER_METHODS);
+export const counterPaymentStatus = pgEnum('counter_payment_status', COUNTER_PAYMENT_STATUSES);
 
 const tz = (name: string) => timestamp(name, { withTimezone: true });
 const id = () => uuid('id').primaryKey().defaultRandom();
@@ -140,7 +142,10 @@ export const shopMembers = pgTable(
   },
   (t) => [
     primaryKey({ columns: [t.shopId, t.userId] }),
-    check('shop_members_role', sql`${t.role} in ('shop_owner','shop_staff')`),
+    check(
+      'shop_members_role',
+      sql`${t.role}::text in ('shop_owner','shop_staff','shop_packer','shop_cashier')`,
+    ),
   ],
 );
 
@@ -200,7 +205,7 @@ export const shopLicences = pgTable(
   (t) => [index('shop_licences_shop_idx').on(t.shopId)],
 );
 
-// ---- Catalogue (price list only — NOT an order system) ----
+// ---- Catalogue ----
 
 export const categories = pgTable('categories', {
   id: id(),
@@ -235,12 +240,25 @@ export const items = pgTable(
     greenRef: text('green_ref').notNull(),
     rackCode: text('rack_code'),
     imageUrl: text('image_url'),
+    /** product photo in the shop-media store (served by /api/media) */
+    imagePath: text('image_path'),
+    barcode: text('barcode'),
+    /** null = stock not tracked */
+    stockQty: integer('stock_qty'),
+    offerPricePaise: integer('offer_price_paise'),
+    offerEndsAt: tz('offer_ends_at'),
     isSoldOut: boolean('is_sold_out').notNull().default(false),
     isActive: boolean('is_active').notNull().default(true),
     ...stamps,
   },
   (t) => [
     uniqueIndex('items_shop_item_no').on(t.shopId, t.itemNo),
+    uniqueIndex('items_shop_barcode').on(t.shopId, t.barcode),
+    check('items_stock_nonneg', sql`${t.stockQty} is null or ${t.stockQty} >= 0`),
+    check(
+      'items_offer_lower',
+      sql`${t.offerPricePaise} is null or (${t.offerPricePaise} > 0 and ${t.offerPricePaise} < ${t.pricePaise})`,
+    ),
     check('items_price_positive', sql`${t.pricePaise} > 0`),
     check('items_item_no_positive', sql`${t.itemNo} > 0`),
     check('items_green_ref_present', sql`length(trim(${t.greenRef})) >= 2`),
@@ -255,53 +273,118 @@ export const shopPriceVersions = pgTable('shop_price_versions', {
   ...stamps,
 });
 
-// ---- Express Pass (SPEC_V2 §4–6) ----
+// ---- Orders (SPEC_V3). Priced by the server; paid to the merchant at the counter ----
 
-/** One flat-fee pass per customer. Only a hash of the QR secret is stored. */
-export const passes = pgTable(
-  'passes',
+export const orders = pgTable(
+  'orders',
   {
     id: id(),
+    /** 6-char Crockford code shown to people (e.g. K7Q-2M9) */
+    code: text('code').notNull().unique(),
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id),
-    /** public reference shown to people, e.g. DXP-K7Q2-M9AB */
-    ref: text('ref').notNull().unique(),
-    status: passStatus('status').notNull().default('pending_payment'),
-    /** sha256 hex of the current QR secret; null until first shown */
-    secretHash: text('secret_hash').unique(),
-    secretRotatedAt: tz('secret_rotated_at'),
+    shopId: uuid('shop_id')
+      .notNull()
+      .references(() => shops.id),
+    status: orderStatus('status').notNull().default('fee_pending'),
     feePaise: integer('fee_paise').notNull(),
-    paidAt: tz('paid_at'),
-    validFrom: tz('valid_from'),
-    validTo: tz('valid_to'),
-    revokedAt: tz('revoked_at'),
-    revokedBy: uuid('revoked_by').references(() => users.id),
-    revokeReason: text('revoke_reason'),
+    estimatedTotalPaise: integer('estimated_total_paise').notNull(),
+    finalTotalPaise: integer('final_total_paise'),
+    /** per shop and IST day, assigned when packed */
+    packNo: integer('pack_no'),
+    packDay: date('pack_day'),
+    customerQrHash: text('customer_qr_hash').unique(),
+    packQrHash: text('pack_qr_hash').unique(),
+    packMatchedAt: tz('pack_matched_at'),
+    feePaidAt: tz('fee_paid_at'),
+    confirmBy: tz('confirm_by'),
+    confirmedAt: tz('confirmed_at'),
+    confirmedBy: uuid('confirmed_by').references(() => users.id),
+    packingStartedAt: tz('packing_started_at'),
+    packedAt: tz('packed_at'),
+    packedBy: uuid('packed_by').references(() => users.id),
+    completedAt: tz('completed_at'),
+    completedBy: uuid('completed_by').references(() => users.id),
+    cancelledAt: tz('cancelled_at'),
+    cancelReason: text('cancel_reason'),
+    billNo: text('bill_no'),
     ...stamps,
   },
   (t) => [
-    uniqueIndex('one_open_pass')
-      .on(t.userId)
-      .where(sql`status in ('pending_payment','active')`),
-    check('passes_fee_positive', sql`${t.feePaise} > 0`),
+    index('orders_shop_status').on(t.shopId, t.status),
+    index('orders_user').on(t.userId, t.createdAt),
+    uniqueIndex('orders_pack_no').on(t.shopId, t.packDay, t.packNo),
+    uniqueIndex('orders_bill_no').on(t.shopId, t.billNo),
+    check('orders_fee_positive', sql`${t.feePaise} > 0`),
+    check('orders_totals_nonneg', sql`${t.estimatedTotalPaise} >= 0`),
   ],
 );
 
-/** A payment attempt for a pass with the provider. */
-export const payments = pgTable(
-  'payments',
+export const orderLines = pgTable(
+  'order_lines',
   {
     id: id(),
-    passId: uuid('pass_id')
+    orderId: uuid('order_id')
       .notNull()
-      .references(() => passes.id),
+      .references(() => orders.id),
+    lineNo: integer('line_no').notNull(),
+    itemId: uuid('item_id')
+      .notNull()
+      .references(() => items.id),
+    /** snapshots at order time: the bill does not change if the catalogue does */
+    itemNo: integer('item_no').notNull(),
+    nameEn: text('name_en').notNull(),
+    nameTe: text('name_te'),
+    packDesc: text('pack_desc'),
+    unitPricePaise: integer('unit_price_paise').notNull(),
+    qty: integer('qty').notNull(),
+    status: lineStatus('status').notNull().default('pending'),
+    pickedQty: integer('picked_qty').notNull().default(0),
+    replacesLineId: uuid('replaces_line_id'),
+    alternateItemId: uuid('alternate_item_id').references(() => items.id),
+    alternateQty: integer('alternate_qty'),
+    alternatePricePaise: integer('alternate_price_paise'),
+    decidedAt: tz('decided_at'),
+    ...stamps,
+  },
+  (t) => [
+    uniqueIndex('order_lines_order_line_no').on(t.orderId, t.lineNo),
+    check('order_lines_qty', sql`${t.qty} between 1 and 99`),
+    check('order_lines_picked', sql`${t.pickedQty} between 0 and ${t.qty}`),
+    check('order_lines_price', sql`${t.unitPricePaise} > 0`),
+  ],
+);
+
+/** Timeline: actor, time and reason for every transition. */
+export const orderEvents = pgTable(
+  'order_events',
+  {
+    id: id(),
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => orders.id),
+    actorUserId: uuid('actor_user_id'),
+    type: text('type').notNull(),
+    meta: jsonb('meta'),
+    at: tz('at').notNull().defaultNow(),
+  },
+  (t) => [index('order_events_order').on(t.orderId, t.at)],
+);
+
+/** The platform's own ₹30 fee, collected through the payment adapter (G3). */
+export const feePayments = pgTable(
+  'fee_payments',
+  {
+    id: id(),
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => orders.id),
     provider: text('provider').notNull(),
-    /** provider's order / checkout id */
     checkoutId: text('checkout_id').notNull(),
     checkoutUrl: text('checkout_url').notNull(),
     providerPaymentId: text('provider_payment_id'),
-    status: paymentStatus('status').notNull().default('created'),
+    status: feePaymentStatus('status').notNull().default('created'),
     amountPaise: integer('amount_paise').notNull(),
     idempotencyKey: text('idempotency_key').notNull().unique(),
     capturedAt: tz('captured_at'),
@@ -309,15 +392,15 @@ export const payments = pgTable(
     ...stamps,
   },
   (t) => [
-    uniqueIndex('payments_provider_checkout').on(t.provider, t.checkoutId),
-    index('payments_pass_idx').on(t.passId),
-    check('payments_amount_positive', sql`${t.amountPaise} > 0`),
+    uniqueIndex('fee_payments_provider_checkout').on(t.provider, t.checkoutId),
+    index('fee_payments_order').on(t.orderId),
+    check('fee_payments_amount', sql`${t.amountPaise} > 0`),
   ],
 );
 
-/** Every provider event, once. Replays hit the unique index and are ignored. */
-export const paymentEvents = pgTable(
-  'payment_events',
+/** Every provider event once; replays hit the unique index and change nothing. */
+export const feePaymentEvents = pgTable(
+  'fee_payment_events',
   {
     id: id(),
     provider: text('provider').notNull(),
@@ -327,18 +410,18 @@ export const paymentEvents = pgTable(
     outcome: text('outcome').notNull(),
     receivedAt: tz('received_at').notNull().defaultNow(),
   },
-  (t) => [uniqueIndex('payment_events_provider_event').on(t.provider, t.eventId)],
+  (t) => [uniqueIndex('fee_payment_events_provider_event').on(t.provider, t.eventId)],
 );
 
-export const refunds = pgTable(
-  'refunds',
+export const feeRefunds = pgTable(
+  'fee_refunds',
   {
     id: id(),
-    paymentId: uuid('payment_id')
+    feePaymentId: uuid('fee_payment_id')
       .notNull()
-      .references(() => payments.id),
+      .references(() => feePayments.id),
     amountPaise: integer('amount_paise').notNull(),
-    status: refundStatus('status').notNull().default('pending'),
+    status: feeRefundStatus('status').notNull().default('pending'),
     providerRefundId: text('provider_refund_id'),
     idempotencyKey: text('idempotency_key').notNull().unique(),
     reason: text('reason').notNull(),
@@ -347,38 +430,86 @@ export const refunds = pgTable(
     ...stamps,
   },
   (t) => [
-    // At most one refund per payment that has not failed.
-    uniqueIndex('one_live_refund')
-      .on(t.paymentId)
+    uniqueIndex('fee_refunds_one_live')
+      .on(t.feePaymentId)
       .where(sql`status in ('pending','processed')`),
-    check('refunds_amount_positive', sql`${t.amountPaise} > 0`),
+    check('fee_refunds_amount', sql`${t.amountPaise} > 0`),
   ],
 );
 
-/** Every verification attempt at a shop counter or a ground gate. No money (G4). */
-export const passScans = pgTable(
-  'pass_scans',
+/** Sale payment taken at the merchant's counter; money goes to the merchant. */
+export const counterPayments = pgTable(
+  'counter_payments',
   {
     id: id(),
-    passId: uuid('pass_id').references(() => passes.id),
-    shopId: uuid('shop_id').references(() => shops.id),
-    clusterId: uuid('cluster_id').references(() => clusters.id),
-    scannedBy: uuid('scanned_by')
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => orders.id),
+    method: counterMethod('method').notNull(),
+    status: counterPaymentStatus('status').notNull().default('pending'),
+    amountPaise: integer('amount_paise').notNull(),
+    /** YouPI payment id, card approval code, or null for cash */
+    reference: text('reference'),
+    /** UPI bank reference (UTR) from YouPI */
+    utr: text('utr'),
+    payUrl: text('pay_url'),
+    receivedPaise: integer('received_paise'),
+    takenBy: uuid('taken_by')
       .notNull()
       .references(() => users.id),
-    result: scanResult('result').notNull(),
-    flag: scanFlag('flag'),
-    at: tz('at').notNull().defaultNow(),
+    receivedAt: tz('received_at'),
+    ...stamps,
   },
   (t) => [
-    index('pass_scans_pass_at').on(t.passId, t.at),
-    index('pass_scans_shop_at').on(t.shopId, t.at),
-    index('pass_scans_cluster_at').on(t.clusterId, t.at),
-    check('pass_scans_one_place', sql`(${t.shopId} is not null) <> (${t.clusterId} is not null)`),
+    index('counter_payments_order').on(t.orderId),
+    uniqueIndex('counter_payments_one_received')
+      .on(t.orderId)
+      .where(sql`status = 'received'`),
+    check('counter_payments_amount', sql`${t.amountPaise} > 0`),
   ],
 );
 
-/** Daily verification counts per shop; survives the end-of-season scan purge. */
+/** Provider events from merchants' YouPI-PG instances, once each. */
+export const counterPaymentEvents = pgTable(
+  'counter_payment_events',
+  {
+    id: id(),
+    shopId: uuid('shop_id')
+      .notNull()
+      .references(() => shops.id),
+    eventKey: text('event_key').notNull(),
+    payloadSha256: text('payload_sha256').notNull(),
+    outcome: text('outcome').notNull(),
+    receivedAt: tz('received_at').notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('counter_payment_events_key').on(t.shopId, t.eventKey)],
+);
+
+/** How a merchant takes counter payments. Set by the platform team or the owner. */
+export const merchantPaymentSettings = pgTable('merchant_payment_settings', {
+  shopId: uuid('shop_id')
+    .primaryKey()
+    .references(() => shops.id),
+  youpiBaseUrl: text('youpi_base_url'),
+  youpiMerchantId: text('youpi_merchant_id'),
+  /** AES-256-GCM encrypted with MERCHANT_SECRETS_KEY */
+  youpiWebhookSecretEnc: text('youpi_webhook_secret_enc'),
+  upiVpa: text('upi_vpa'),
+  acceptsCard: boolean('accepts_card').notNull().default(true),
+  acceptsCash: boolean('accepts_cash').notNull().default(true),
+  ...stamps,
+});
+
+/** Per-shop sequence for bill numbers. */
+export const shopCounters = pgTable('shop_counters', {
+  shopId: uuid('shop_id')
+    .primaryKey()
+    .references(() => shops.id),
+  lastBillNo: integer('last_bill_no').notNull().default(0),
+  ...stamps,
+});
+
+/** The merchant's own daily numbers; survives the end-of-season purge. */
 export const dailyShopStats = pgTable(
   'daily_shop_stats',
   {
@@ -386,9 +517,10 @@ export const dailyShopStats = pgTable(
       .notNull()
       .references(() => shops.id),
     day: date('day').notNull(),
-    scans: integer('scans').notNull().default(0),
-    uniquePasses: integer('unique_passes').notNull().default(0),
-    flagged: integer('flagged').notNull().default(0),
+    orders: integer('orders').notNull().default(0),
+    completed: integer('completed').notNull().default(0),
+    cancelled: integer('cancelled').notNull().default(0),
+    salesPaise: integer('sales_paise').notNull().default(0),
     ...stamps,
   },
   (t) => [primaryKey({ columns: [t.shopId, t.day] })],

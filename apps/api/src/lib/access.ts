@@ -1,5 +1,6 @@
 import type { HttpRequest } from '@azure/functions';
 import { and, asc, eq } from 'drizzle-orm';
+import { VENDOR_ROLES, type VendorRole } from '@pataka/shared';
 import type { Db } from '../db/client';
 import { clusterMarshals, clusters, shopMembers, shops } from '../db/schema';
 import { requireRole, type SessionUser } from './auth';
@@ -7,18 +8,31 @@ import { forbidden, HttpError } from './errors';
 
 export type ShopRow = typeof shops.$inferSelect;
 export type ClusterRow = typeof clusters.$inferSelect;
-export type ShopAccess = { user: SessionUser; shop: ShopRow; isOwner: boolean };
+export type ShopRole = VendorRole | 'admin';
+export type ShopAccess = { user: SessionUser; shop: ShopRow; isOwner: boolean; role: ShopRole };
+
+/** Which shop roles may do what (SPEC_V3 §3). Admins can do everything. */
+export const SHOP_ABILITIES = {
+  catalogue: ['shop_owner'],
+  soldOut: ['shop_owner', 'shop_staff', 'shop_packer'],
+  orders: ['shop_owner', 'shop_staff'],
+  packing: ['shop_owner', 'shop_staff', 'shop_packer'],
+  counter: ['shop_owner', 'shop_staff', 'shop_cashier'],
+  view: ['shop_owner', 'shop_staff', 'shop_packer', 'shop_cashier'],
+} as const satisfies Record<string, readonly VendorRole[]>;
+export type ShopAbility = keyof typeof SHOP_ABILITIES;
 
 /**
  * Row-level authorisation for the shop app (SPEC §10). Vendors act on their own
- * shop; admins pick one with ?shop=CODE. `ownerOnly` excludes counter staff.
+ * shop; admins pick one with ?shop=CODE. `ownerOnly` excludes all other staff;
+ * `can` limits the call to the roles allowed that ability.
  */
 export async function requireShop(
   db: Db,
   req: HttpRequest,
-  opts: { ownerOnly?: boolean } = {},
+  opts: { ownerOnly?: boolean; can?: ShopAbility } = {},
 ): Promise<ShopAccess> {
-  const user = await requireRole(db, req, ['shop_owner', 'shop_staff', 'admin']);
+  const user = await requireRole(db, req, [...VENDOR_ROLES, 'admin']);
   const wanted = req.query.get('shop')?.trim().toUpperCase() || null;
 
   if (user.role === 'admin') {
@@ -26,7 +40,7 @@ export async function requireShop(
       ? await db.select().from(shops).where(eq(shops.shortCode, wanted))
       : await db.select().from(shops).orderBy(asc(shops.shortCode)).limit(1);
     if (!shop) throw new HttpError(404, 'shop_not_found', 'No shop with that code');
-    return { user, shop, isOwner: true };
+    return { user, shop, isOwner: true, role: 'admin' };
   }
 
   const rows = await db
@@ -37,11 +51,15 @@ export async function requireShop(
     .orderBy(asc(shops.shortCode));
   const match = wanted ? rows.find((r) => r.shop.shortCode === wanted) : rows[0];
   if (!match) throw forbidden();
-  const isOwner = match.role === 'shop_owner';
+  const role = match.role as VendorRole;
+  const isOwner = role === 'shop_owner';
   if (opts.ownerOnly && !isOwner) {
     throw new HttpError(403, 'owner_only', 'Only the shop owner can change this');
   }
-  return { user, shop: match.shop, isOwner };
+  if (opts.can && !(SHOP_ABILITIES[opts.can] as readonly VendorRole[]).includes(role)) {
+    throw new HttpError(403, 'role_not_allowed', 'Your shop role cannot do this');
+  }
+  return { user, shop: match.shop, isOwner, role };
 }
 
 /** Marshals act on their own cluster; admins pick one with ?cluster=ID (default: first active). */

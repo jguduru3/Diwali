@@ -1,10 +1,13 @@
-import { and, eq, gte, inArray, isNotNull, lt, sql } from 'drizzle-orm';
+import { and, gte, inArray, lt, sql } from 'drizzle-orm';
 import { istDayRange, type FootfallRow, type Licence } from '@pataka/shared';
 import type { Db } from '../db/client';
-import { dailyShopStats, passScans, shopLicences } from '../db/schema';
+import { dailyShopStats, orders, shopLicences } from '../db/schema';
 import type { ShopRow } from './access';
 
-/** Valid pass checks per shop and day (footfall only, no money — G4). */
+/**
+ * The merchant's own daily numbers: orders placed (fee paid), completed,
+ * cancelled, and their sales. Platform fees are not included (G4).
+ */
 export async function footfall(
   db: Db,
   shopIds: string[],
@@ -15,23 +18,22 @@ export async function footfall(
   const range = { from: istDayRange(from).from, to: istDayRange(to).to };
   const live = await db
     .select({
-      shopId: sql<string>`${passScans.shopId}`,
-      day: sql<string>`to_char((${passScans.at} at time zone 'Asia/Kolkata')::date, 'YYYY-MM-DD')`,
-      scans: sql<number>`count(*)::int`,
-      uniquePasses: sql<number>`count(distinct ${passScans.passId})::int`,
-      flagged: sql<number>`count(*) filter (where ${passScans.flag} is not null)::int`,
+      shopId: orders.shopId,
+      day: sql<string>`to_char((${orders.feePaidAt} at time zone 'Asia/Kolkata')::date, 'YYYY-MM-DD')`,
+      orders: sql<number>`count(*)::int`,
+      completed: sql<number>`count(*) filter (where ${orders.status} = 'completed')::int`,
+      cancelled: sql<number>`count(*) filter (where ${orders.status} in ('cancelled','rejected','expired'))::int`,
+      salesPaise: sql<number>`coalesce(sum(${orders.finalTotalPaise}) filter (where ${orders.status} = 'completed'), 0)::int`,
     })
-    .from(passScans)
+    .from(orders)
     .where(
       and(
-        isNotNull(passScans.shopId),
-        inArray(passScans.shopId, shopIds),
-        eq(passScans.result, 'valid'),
-        gte(passScans.at, range.from),
-        lt(passScans.at, range.to),
+        inArray(orders.shopId, shopIds),
+        gte(orders.feePaidAt, range.from),
+        lt(orders.feePaidAt, range.to),
       ),
     )
-    .groupBy(passScans.shopId, sql`2`);
+    .groupBy(orders.shopId, sql`2`);
   // Stored rows survive the end-of-season purge; live rows win where both exist.
   const stored = await db
     .select()
@@ -48,9 +50,10 @@ export async function footfall(
     out.set(`${s.shopId}:${s.day}`, {
       shopId: s.shopId,
       day: s.day,
-      scans: s.scans,
-      uniquePasses: s.uniquePasses,
-      flagged: s.flagged,
+      orders: s.orders,
+      completed: s.completed,
+      cancelled: s.cancelled,
+      salesPaise: s.salesPaise,
     });
   }
   for (const l of live) out.set(`${l.shopId}:${l.day}`, l);

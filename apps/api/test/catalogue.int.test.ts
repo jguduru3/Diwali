@@ -4,7 +4,7 @@ import { itemsResponseSchema, shopSummarySchema, type Item } from '@pataka/share
 import { getDb } from '../src/db/client';
 import { items, shopLicences, shops } from '../src/db/schema';
 import { licenceVerifyHandler } from '../src/functions/console';
-import { shopItemsHandler, shopsHandler, shopSlotsHandler } from '../src/functions/public';
+import { shopItemsHandler, shopsHandler } from '../src/functions/public';
 import {
   shopItemCreateHandler,
   shopItemPatchHandler,
@@ -18,12 +18,11 @@ const listedCodes = async () =>
   (body<{ shortCode: string }[]>(await call(shopsHandler)) ?? []).map((s) => s.shortCode);
 
 describe('G6 — only verified, in-date licensed shops are visible', () => {
-  it('lists a live shop with a verified licence, with licence badge and next free slot', async () => {
+  it('lists a live shop with a verified licence and its licence badge', async () => {
     await makeListedShop('SLC01');
     const res = await call(shopsHandler);
     const [shop] = shopSummarySchema.array().parse(res.jsonBody);
     expect(shop).toMatchObject({ shortCode: 'SLC01', licence: { licenceNo: 'LE5/SLC01' } });
-    expect(shop!.nextFreeSlot?.remaining).toBe(10);
   });
 
   it('hides shops that are not live, unlicensed, pending or expired', async () => {
@@ -75,7 +74,7 @@ describe('price list', () => {
     await makeListedShop();
     const res = await call(shopItemsHandler, { params: { code: 'slc01' } });
     const parsed = itemsResponseSchema.parse(res.jsonBody);
-    expect(parsed.items).toHaveLength(3);
+    expect(parsed.items).toHaveLength(4);
     expect(res.headers).toMatchObject({ ETag: '"v1"' });
     const again = await call(shopItemsHandler, {
       params: { code: 'SLC01' },
@@ -98,7 +97,7 @@ describe('price list', () => {
       },
     });
     expect(res.status).toBe(201);
-    expect(body<Item>(res).itemNo).toBe(4);
+    expect(body<Item>(res).itemNo).toBe(5);
     const list = itemsResponseSchema.parse(
       (await call(shopItemsHandler, { params: { code: 'SLC01' } })).jsonBody,
     );
@@ -175,22 +174,6 @@ describe('price list', () => {
       body: { isSoldOut: false },
     });
     expect(foreign.status).toBe(404); // scoped to the caller's own shop
-  });
-});
-
-describe('slots', () => {
-  it('generates a day of slots from shop hours on first request', async () => {
-    const { shop } = await makeListedShop();
-    await getDb()
-      .update(shops)
-      .set({ openFrom: '10:00', openTo: '12:00' })
-      .where(eq(shops.id, shop.id));
-    const tomorrow = new Date(Date.now() + 86_400_000 + 5.5 * 3_600_000).toISOString().slice(0, 10);
-    const res = await call(shopSlotsHandler, {
-      params: { code: 'SLC01' },
-      query: { date: tomorrow },
-    });
-    expect(body<{ slots: unknown[] }>(res).slots).toHaveLength(4);
   });
 });
 

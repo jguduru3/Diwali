@@ -1,7 +1,15 @@
 // Dev/demo seed (SPEC §6.4). Idempotent: safe to run again.
 //   pnpm db:seed
-import { and, eq, gt, inArray, sql } from 'drizzle-orm';
-import type { GreenCert, Role } from '@pataka/shared';
+import { eq } from 'drizzle-orm';
+import {
+  PLATFORM_FEE_PAISE,
+  confirmBy,
+  effectivePrice,
+  encodeOrderQr,
+  istDate,
+  type GreenCert,
+  type Role,
+} from '@pataka/shared';
 import { closeDb, getDb } from '../src/db/client';
 import {
   categories,
@@ -11,14 +19,14 @@ import {
   shopLicences,
   shopMembers,
   shopPriceVersions,
+  feePayments,
+  orderLines,
+  orders,
   shops,
-  slots,
   users,
-  visits,
 } from '../src/db/schema';
-import { generateUpcomingSlots } from '../src/lib/jobs';
+import { hashSecret } from '../src/lib/orders';
 import { fileStore } from '../src/lib/storage';
-import { newVisitCode } from '../src/lib/visits';
 import { demoLicencePng } from './demoLicenceImage.mjs';
 import { loadLocalSettings } from './localSettings.mjs';
 
@@ -103,8 +111,7 @@ const gachibowli = await upsertCluster({
   lat: 17.4401,
   lng: 78.3489,
   address: 'Old Mumbai Hwy, near GMC Balayogi Stadium, Gachibowli, Hyderabad 500032',
-  bayCount: 20,
-  gateNotes: 'Enter from Gate 2. Holding bays are on the east lot, 60 m from the stalls.',
+  gateNotes: 'Enter from Gate 2. Express Pickup counters are at the front of each stall.',
 });
 const madhapur = await upsertCluster({
   name: 'Madhapur Cracker Mela',
@@ -112,8 +119,7 @@ const madhapur = await upsertCluster({
   lat: 17.4483,
   lng: 78.3915,
   address: 'Ayyappa Society open ground, Madhapur, Hyderabad 500081',
-  bayCount: 12,
-  gateNotes: 'Bays along the north wall. Walk the last stretch on foot.',
+  gateNotes: 'Park along the north wall; Express Pickup counters face the road.',
 });
 
 // A drawn "licence document" used as the demo licence photo.
@@ -309,10 +315,14 @@ for (const s of shopDefs) {
   const shopId = shop!.id;
 
   const owner = await upsertUser(phone(s.n * 10 + 1), 'shop_owner', `${s.name} — owner`);
-  const staff = await upsertUser(phone(s.n * 10 + 2), 'shop_staff', `${s.name} — counter`);
+  const staff = await upsertUser(phone(s.n * 10 + 2), 'shop_staff', `${s.name} — staff`);
+  const packer = await upsertUser(phone(s.n * 10 + 3), 'shop_packer', `${s.name} — packer`);
+  const cashier = await upsertUser(phone(s.n * 10 + 4), 'shop_cashier', `${s.name} — cashier`);
   for (const [u, role] of [
     [owner, 'shop_owner'],
     [staff, 'shop_staff'],
+    [packer, 'shop_packer'],
+    [cashier, 'shop_cashier'],
   ] as const) {
     await db.insert(shopMembers).values({ shopId, userId: u.id, role }).onConflictDoNothing();
   }
@@ -348,6 +358,11 @@ for (const s of shopDefs) {
       greenCert: cert,
       greenRef: `NEERI-${cert.split('_').pop()}-26-${String(1000 + s.n * 100 + itemNo)}`,
       rackCode: rack,
+      // Demo barcodes: 89 + shop number + item number. Every 5th item tracks a low
+      // stock; every 4th runs a 15% offer.
+      barcode: `89${s.n}${String(itemNo).padStart(4, '0')}`,
+      stockQty: itemNo % 5 === 0 ? 3 : null,
+      offerPricePaise: itemNo % 4 === 1 ? Math.round((pricePaise * 0.85) / 500) * 500 : null,
     };
     await db
       .insert(items)
@@ -423,67 +438,108 @@ for (const [i, cluster] of [gachibowli, madhapur].entries()) {
 
 await upsertUser(phone(99), 'customer', 'Demo customer');
 
-// ---- Slots and a few visitors already in the queue at SLC01 ----
+// ---- Demo orders at SLC01 (mock ₹30 fee; no real money) ----
+// +91 90000 00091: placed, waiting for the merchant to confirm.
+// +91 90000 00092: packed — QRs below let you try the Express Pickup counter.
 
-await generateUpcomingSlots(db);
+const DEMO_PICKUP_SECRET = 'DEMXQR0000000000000000092A';
+const DEMO_PACK_SECRET = 'DEMXPACK000000000000000092';
 const [slc] = await db.select().from(shops).where(eq(shops.shortCode, 'SLC01'));
-const upcoming = await db
+const slcItems = await db
   .select()
-  .from(slots)
-  .where(and(eq(slots.shopId, slc!.id), gt(slots.startsAt, sql`now() + interval '40 minutes'`)))
-  .orderBy(slots.startsAt)
-  .limit(3);
-const queued = [91, 92, 93, 94, 95, 96];
-const queueUsers = [];
-for (const n of queued)
-  queueUsers.push(await upsertUser(phone(n), 'customer', `Visitor ${n - 90}`));
-const already = await db
-  .select({ userId: visits.userId })
-  .from(visits)
-  .where(
-    and(
-      inArray(
-        visits.userId,
-        queueUsers.map((u) => u.id),
-      ),
-      inArray(visits.status, ['booked', 'arrived']),
-    ),
-  );
-for (const [i, u] of queueUsers.entries()) {
-  const slot = upcoming[Math.floor(i / 2)];
-  if (!slot || already.some((a) => a.userId === u.id)) continue;
-  await db.transaction(async (tx) => {
-    await tx
-      .update(slots)
-      .set({ booked: sql`${slots.booked} + 1` })
-      .where(eq(slots.id, slot.id));
-    await tx.insert(visits).values({
-      code: newVisitCode(),
-      userId: u.id,
+  .from(items)
+  .where(eq(items.shopId, slc!.id))
+  .orderBy(items.itemNo)
+  .limit(6);
+
+async function demoOrder(
+  n: number,
+  code: string,
+  status: 'placed' | 'packed',
+  picks: { idx: number; qty: number }[],
+) {
+  const customer = await upsertUser(phone(n), 'customer', `Demo customer ${n - 90}`);
+  const [existing] = await db.select().from(orders).where(eq(orders.code, code));
+  if (existing) return;
+  const now = new Date();
+  const lines = picks.map((p, i) => {
+    const it = slcItems[p.idx]!;
+    return { it, qty: p.qty, unit: effectivePrice(it, now), lineNo: i + 1 };
+  });
+  const total = lines.reduce((s, l) => s + l.unit * l.qty, 0);
+  const packed = status === 'packed';
+  const [o] = await db
+    .insert(orders)
+    .values({
+      code,
+      userId: customer.id,
       shopId: slc!.id,
-      slotId: slot.id,
-      partyVehicle: (['car', 'bike', 'walk'] as const)[i % 3],
-      ...(i === 0 ? { status: 'arrived' as const, arrivedAt: new Date(), bayNo: 3 } : {}),
-    });
+      status,
+      feePaise: PLATFORM_FEE_PAISE,
+      estimatedTotalPaise: total,
+      feePaidAt: now,
+      confirmBy: confirmBy(now),
+      ...(packed
+        ? {
+            confirmedAt: now,
+            packingStartedAt: now,
+            packedAt: now,
+            finalTotalPaise: total,
+            packNo: 1,
+            packDay: istDate(now),
+            customerQrHash: hashSecret(DEMO_PICKUP_SECRET),
+            packQrHash: hashSecret(DEMO_PACK_SECRET),
+          }
+        : {}),
+    })
+    .returning();
+  await db.insert(orderLines).values(
+    lines.map((l) => ({
+      orderId: o!.id,
+      lineNo: l.lineNo,
+      itemId: l.it.id,
+      itemNo: l.it.itemNo,
+      nameEn: l.it.nameEn,
+      nameTe: l.it.nameTe,
+      packDesc: l.it.packDesc,
+      unitPricePaise: l.unit,
+      qty: l.qty,
+      status: packed ? ('picked' as const) : ('pending' as const),
+      pickedQty: packed ? l.qty : 0,
+    })),
+  );
+  await db.insert(feePayments).values({
+    orderId: o!.id,
+    provider: 'mock',
+    checkoutId: `mock_ck_seed_${code}`,
+    checkoutUrl: `/pay/mock/mock_ck_seed_${code}`,
+    providerPaymentId: `mock_pay_seed_${code}`,
+    status: 'captured',
+    amountPaise: PLATFORM_FEE_PAISE,
+    idempotencyKey: `fee:${o!.id}:1`,
+    capturedAt: now,
   });
 }
 
-const demoCodes = await db
-  .select({ code: visits.code, status: visits.status })
-  .from(visits)
-  .where(
-    inArray(
-      visits.userId,
-      queueUsers.map((u) => u.id),
-    ),
-  );
+await demoOrder(91, 'DEM091', 'placed', [
+  { idx: 0, qty: 2 },
+  { idx: 2, qty: 1 },
+  { idx: 4, qty: 3 },
+]);
+await demoOrder(92, 'DEM092', 'packed', [
+  { idx: 1, qty: 1 },
+  { idx: 3, qty: 2 },
+]);
 
 await closeDb();
 console.log(`Seeded Diwali Express Pickup demo data.
   Shops: SLC01, BAL01, ANA01, DEM01 (live) · SAI01 (licence pending)
   Accounts (OTP 123456 in dev, or one tap in demo mode):
     admin        ${phone(1)}
-    shop owner   ${phone(11)} (SLC01)     counter staff ${phone(12)} (SLC01)
+    shop owner   ${phone(11)} (SLC01)     staff ${phone(12)}   packer ${phone(13)}   cashier ${phone(14)}
     marshal      ${phone(51)} (Gachibowli)
     customer     ${phone(99)}
-  Demo tickets at SLC01: ${demoCodes.map((d) => `${d.code} (${d.status})`).join(', ') || 'none (no upcoming slots today/tomorrow)'}`);
+    customers    ${phone(91)} (order placed)   ${phone(92)} (order packed)
+  Barcodes at SLC01: 891 + item number, e.g. 8910001
+  Packed order DEM-092 — pickup QR: ${encodeOrderQr('customer', DEMO_PICKUP_SECRET)}
+                         pack sticker: ${encodeOrderQr('pack', DEMO_PACK_SECRET)}`);

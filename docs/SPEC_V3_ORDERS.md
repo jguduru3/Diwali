@@ -17,17 +17,17 @@ The platform never holds the merchant's sale money. The only money the platform 
 
 ## 2. Guardrails (replace SPEC §1 where listed)
 
-| #   | Rule                                                                                                                                                                                                                      |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #   | Rule                                                                                                                                                                                                                                              |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | L1  | **Legal gate.** Online ordering is behind `ORDERING_ENABLED` (off by default and in prod Bicep) until a written legal opinion clears online orders for licensed firecracker retail in Telangana. The plan-list mode keeps working when it is off. |
-| G3  | Platform collects only the flat ₹30 fee through its payment adapter (mock in dev). Sale payments go **directly to the merchant** at the counter (merchant's YouPI-PG UPI, card machine, cash). No payment SDKs in package.json. |
-| G4  | No commission or per-sale platform fee. Order totals are the merchant's bill and are stored for the bill and reconciliation only.                                                                                          |
-| G5  | Banned UI words now: buy now, delivery, deliver, delivered, 100% legal, booking confirmed. (Order/cart wording is allowed; pickup only, pay at the counter.)                                                                |
-| G6  | Public shop queries use `visible_shops` only; only listed shops accept orders.                                                                                                                                              |
-| G7  | Banned categories cannot be created or ordered; every item has green_cert + green_ref.                                                                                                                                      |
-| G8  | Safety notice on the pickup QR screen and on the bill.                                                                                                                                                                      |
-| G9  | Phone is the only customer personal data; staff see a masked number; consent, purge, delete-me.                                                                                                                             |
-| G11 | Server is the source of truth: it prices orders from the catalogue, enforces every state change, and never trusts client prices, totals, status or payment flags. QR payloads are opaque random tokens stored as hashes. |
+| G3  | Platform collects only the flat ₹30 fee through its payment adapter (mock in dev). Sale payments go **directly to the merchant** at the counter (merchant's YouPI-PG UPI, card machine, cash). No payment SDKs in package.json.                   |
+| G4  | No commission or per-sale platform fee. Order totals are the merchant's bill and are stored for the bill and reconciliation only.                                                                                                                 |
+| G5  | Banned UI words now: buy now, delivery, deliver, delivered, 100% legal, booking confirmed. (Order/cart wording is allowed; pickup only, pay at the counter.)                                                                                      |
+| G6  | Public shop queries use `visible_shops` only; only listed shops accept orders.                                                                                                                                                                    |
+| G7  | Banned categories cannot be created or ordered; every item has green_cert + green_ref.                                                                                                                                                            |
+| G8  | Safety notice on the pickup QR screen and on the bill.                                                                                                                                                                                            |
+| G9  | Phone is the only customer personal data; staff see a masked number; consent, purge, delete-me.                                                                                                                                                   |
+| G11 | Server is the source of truth: it prices orders from the catalogue, enforces every state change, and never trusts client prices, totals, status or payment flags. QR payloads are opaque random tokens stored as hashes.                          |
 
 ## 3. Roles
 
@@ -35,13 +35,13 @@ The platform never holds the merchant's sale money. The only money the platform 
 
 ## 4. Platform fee (₹30)
 
-| Event                                           | Fee                         |
-| ----------------------------------------------- | --------------------------- |
-| Order placed                                    | Customer pays ₹30 (adapter) |
-| Merchant confirms within 3 days                 | Fee earned                  |
-| Not confirmed within 3 days (job, hourly)       | Full ₹30 refund             |
-| Merchant rejects, or customer cancels before confirmation | Full ₹30 refund   |
-| Customer cancels after confirmation / never collects | Fee kept                |
+| Event                                                     | Fee                         |
+| --------------------------------------------------------- | --------------------------- |
+| Order placed                                              | Customer pays ₹30 (adapter) |
+| Merchant confirms within 3 days                           | Fee earned                  |
+| Not confirmed within 3 days (job, hourly)                 | Full ₹30 refund             |
+| Merchant rejects, or customer cancels before confirmation | Full ₹30 refund             |
+| Customer cancels after confirmation / never collects      | Fee kept                    |
 
 `fee_pending` orders are not visible to merchants. Payment state changes only from signature-verified provider events (idempotent per event id).
 

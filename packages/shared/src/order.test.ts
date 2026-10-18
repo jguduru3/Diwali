@@ -49,7 +49,8 @@ describe('platform fee rules', () => {
 describe('order state machine (server-enforced)', () => {
   it('allows the happy path', () => {
     const path = ['fee_pending', 'placed', 'confirmed', 'packing', 'packed', 'completed'] as const;
-    for (let i = 0; i < path.length - 1; i++) expect(canTransition(path[i]!, path[i + 1]!)).toBe(true);
+    for (let i = 0; i < path.length - 1; i++)
+      expect(canTransition(path[i]!, path[i + 1]!)).toBe(true);
   });
 
   it('allows customer decisions during packing', () => {
@@ -80,10 +81,16 @@ describe('pricing', () => {
   const now = new Date('2026-11-01T00:00:00Z');
 
   it('uses the offer price while the offer runs', () => {
-    expect(effectivePrice({ pricePaise: 50000, offerPricePaise: 42000, offerEndsAt: null }, now)).toBe(42000);
+    expect(
+      effectivePrice({ pricePaise: 50000, offerPricePaise: 42000, offerEndsAt: null }, now),
+    ).toBe(42000);
     expect(
       effectivePrice(
-        { pricePaise: 50000, offerPricePaise: 42000, offerEndsAt: new Date('2026-11-05T00:00:00Z') },
+        {
+          pricePaise: 50000,
+          offerPricePaise: 42000,
+          offerEndsAt: new Date('2026-11-05T00:00:00Z'),
+        },
         now,
       ),
     ).toBe(42000);
@@ -92,12 +99,20 @@ describe('pricing', () => {
   it('falls back to the price after the offer ends or if the offer is not lower', () => {
     expect(
       effectivePrice(
-        { pricePaise: 50000, offerPricePaise: 42000, offerEndsAt: new Date('2026-10-31T00:00:00Z') },
+        {
+          pricePaise: 50000,
+          offerPricePaise: 42000,
+          offerEndsAt: new Date('2026-10-31T00:00:00Z'),
+        },
         now,
       ),
     ).toBe(50000);
-    expect(effectivePrice({ pricePaise: 50000, offerPricePaise: 60000, offerEndsAt: null }, now)).toBe(50000);
-    expect(effectivePrice({ pricePaise: 50000, offerPricePaise: null, offerEndsAt: null }, now)).toBe(50000);
+    expect(
+      effectivePrice({ pricePaise: 50000, offerPricePaise: 60000, offerEndsAt: null }, now),
+    ).toBe(50000);
+    expect(
+      effectivePrice({ pricePaise: 50000, offerPricePaise: null, offerEndsAt: null }, now),
+    ).toBe(50000);
   });
 
   it('bills only picked lines', () => {
@@ -120,7 +135,9 @@ describe('packing progress', () => {
   });
 
   it('is ready to pack when every line is resolved and something was picked', () => {
-    expect(readyToPack([{ status: 'picked' }, { status: 'removed' }, { status: 'replaced' }])).toBe(true);
+    expect(readyToPack([{ status: 'picked' }, { status: 'removed' }, { status: 'replaced' }])).toBe(
+      true,
+    );
     expect(readyToPack([{ status: 'picked' }, { status: 'pending' }])).toBe(false);
     expect(readyToPack([{ status: 'removed' }])).toBe(false);
     expect(readyToPack([{ status: 'picked' }, { status: 'alternate_proposed' }])).toBe(false);
@@ -137,7 +154,10 @@ describe('pickup and pack QR codes', () => {
 
   it('parses scanned or typed codes and tells the kinds apart', () => {
     expect(parseOrderQr(`DXO1.${SECRET}`)).toEqual({ kind: 'customer', secret: SECRET });
-    expect(parseOrderQr(` dxk1.${SECRET.toLowerCase()} `)).toEqual({ kind: 'pack', secret: SECRET });
+    expect(parseOrderQr(` dxk1.${SECRET.toLowerCase()} `)).toEqual({
+      kind: 'pack',
+      secret: SECRET,
+    });
     expect(parseOrderQr(SECRET)).toBeNull();
     expect(parseOrderQr('PP1.-.SLC01.C.3*2')).toBeNull();
     expect(parseOrderQr(`DXO1.${SECRET.replace('A', 'U')}`)).toBeNull();
@@ -169,8 +189,12 @@ describe('place-order body (G11)', () => {
   });
 
   it('limits quantities and line count', () => {
-    expect(placeOrderSchema.safeParse({ ...ok, lines: [{ ...ok.lines[0], qty: 0 }] }).success).toBe(false);
-    expect(placeOrderSchema.safeParse({ ...ok, lines: [{ ...ok.lines[0], qty: 100 }] }).success).toBe(false);
+    expect(placeOrderSchema.safeParse({ ...ok, lines: [{ ...ok.lines[0], qty: 0 }] }).success).toBe(
+      false,
+    );
+    expect(
+      placeOrderSchema.safeParse({ ...ok, lines: [{ ...ok.lines[0], qty: 100 }] }).success,
+    ).toBe(false);
     expect(placeOrderSchema.safeParse({ ...ok, lines: [] }).success).toBe(false);
     const many = Array.from({ length: 41 }, (_, i) => ({
       itemId: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
@@ -180,6 +204,8 @@ describe('place-order body (G11)', () => {
   });
 
   it('rejects the same item twice', () => {
-    expect(placeOrderSchema.safeParse({ ...ok, lines: [ok.lines[0], ok.lines[0]] }).success).toBe(false);
+    expect(placeOrderSchema.safeParse({ ...ok, lines: [ok.lines[0], ok.lines[0]] }).success).toBe(
+      false,
+    );
   });
 });

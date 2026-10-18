@@ -22,23 +22,21 @@ import {
   clusterInputSchema,
   clusterPatchSchema,
   dateSchema,
-  effectivePassStatus,
-  formatPassRef,
   istDate,
   istDayRange,
   licenceDecisionSchema,
   licenceStatusSchema,
+  merchantPaymentSettingsSchema,
   normalizeIndianPhone,
-  passActionSchema,
-  passHolderMask,
-  passStatusSchema,
+  orderStatusSchema,
+  reasonSchema,
   shopInputSchema,
   shopPatchSchema,
+  staffPhoneMask,
   type AdminCluster,
-  type AdminPass,
+  type AdminOrder,
   type AdminShop,
   type BlockedUser,
-  type FlaggedScan,
   type Metrics,
   type MetricsRow,
 } from '@pataka/shared';
@@ -46,11 +44,10 @@ import { getDb, type Db } from '../db/client';
 import {
   categories,
   clusters,
+  feePayments,
+  feeRefunds,
   items,
-  passes,
-  passScans,
-  payments,
-  refunds,
+  orders,
   shopLicences,
   shopPriceVersions,
   shops,
@@ -63,13 +60,11 @@ import { requireRole } from '../lib/auth';
 import { categoryView } from '../lib/catalogue';
 import { HttpError } from '../lib/errors';
 import { http, json, parseBody, parseQuery } from '../lib/http';
-import { refundPass, revokePass } from '../lib/passes';
-import { activeProvider } from '../lib/payments';
-import { mockId, mockProvider, signMockEvent } from '../lib/payments/mock';
+import { customerOrderView, refundFee } from '../lib/orders';
 import { clusterView } from '../lib/places';
 import { licenceView } from '../lib/reports';
 import { fileStore } from '../lib/storage';
-import { processWebhook } from './payments';
+import { saveSettings, settingsView } from './shop';
 
 const admin = (db: Db, req: HttpRequest) => requireRole(db, req, ['admin']);
 
@@ -389,147 +384,80 @@ export async function unblockHandler(req: HttpRequest): Promise<HttpResponseInit
   return json({ ok: true });
 }
 
-// ---- Express Passes ----
+// ---- Orders and platform fees ----
 
-async function adminPassRows(db: Db, where: SQL | undefined, limit = 100): Promise<AdminPass[]> {
-  const rows = await db
-    .select({
-      p: passes,
-      phone: users.phoneE164,
-      scans: sql<number>`(select count(*)::int from pass_scans s where s.pass_id = ${passes.id})`,
-      flagged: sql<number>`(select count(*)::int from pass_scans s where s.pass_id = ${passes.id} and s.flag is not null)`,
-    })
-    .from(passes)
-    .innerJoin(users, eq(users.id, passes.userId))
-    .where(where)
-    .orderBy(desc(passes.createdAt))
-    .limit(limit);
-  if (!rows.length) return [];
-  const ids = rows.map((r) => r.p.id);
-  const pays = await db
-    .select()
-    .from(payments)
-    .where(inArray(payments.passId, ids))
-    .orderBy(desc(payments.createdAt));
-  const refs = pays.length
-    ? await db
-        .select()
-        .from(refunds)
-        .where(
-          inArray(
-            refunds.paymentId,
-            pays.map((p) => p.id),
-          ),
-        )
-        .orderBy(desc(refunds.createdAt))
-    : [];
-  return rows.map(({ p, phone, scans, flagged }) => {
-    const mine = pays.filter((x) => x.passId === p.id);
-    const pay = mine.find((x) => x.status === 'captured') ?? mine[0];
-    const refund = pay ? refs.find((r) => r.paymentId === pay.id) : undefined;
-    return {
-      id: p.id,
-      ref: formatPassRef(p.ref),
-      status: effectivePassStatus(p),
-      maskedPhone: passHolderMask(phone),
-      feePaise: p.feePaise,
-      validTo: p.validTo?.toISOString() ?? null,
-      createdAt: p.createdAt.toISOString(),
-      paidAt: p.paidAt?.toISOString() ?? null,
-      scans,
-      flaggedScans: flagged,
-      payment: pay
-        ? { provider: pay.provider, providerPaymentId: pay.providerPaymentId, status: pay.status }
-        : null,
-      refund: refund ? { status: refund.status, amountPaise: refund.amountPaise } : null,
-    };
-  });
-}
-
-/** GET /api/console/passes?q=&status= — q is a pass reference or a full phone number. */
-export async function passesListHandler(req: HttpRequest): Promise<HttpResponseInit> {
+/** GET /api/console/orders?q=&status= — q is an order code, shop code or full phone number. */
+export async function ordersListHandler(req: HttpRequest): Promise<HttpResponseInit> {
   const db = getDb();
   await admin(db, req);
   const q = req.query.get('q')?.trim() ?? '';
   const status = req.query.get('status');
   const filters: SQL[] = [];
   if (q) {
-    const ref = q.toUpperCase().replace(/^DXP-?/, '').replace(/[\s-]/g, '');
     const phone = normalizeIndianPhone(q);
-    filters.push(phone ? eq(users.phoneE164, phone) : eq(passes.ref, ref));
+    const code = q.toUpperCase().replace(/[\s-]/g, '');
+    filters.push(
+      phone
+        ? eq(users.phoneE164, phone)
+        : sql`(${orders.code} = ${code} or ${shops.shortCode} = ${code})`,
+    );
   }
-  if (status) {
-    const s = passStatusSchema.parse(status);
-    if (s === 'expired') filters.push(eq(passes.status, 'active'), lt(passes.validTo, sql`now()`));
-    else if (s === 'active') {
-      filters.push(eq(passes.status, 'active'), gt(passes.validTo, sql`now()`));
-    } else filters.push(eq(passes.status, s));
-  }
-  return json(await adminPassRows(db, filters.length ? and(...filters) : undefined));
-}
-
-/** POST /api/console/passes/{id}/revoke {reason} — stops verification at once. */
-export async function passRevokeHandler(req: HttpRequest): Promise<HttpResponseInit> {
-  const db = getDb();
-  const user = await admin(db, req);
-  const id = requireUuidParam(req, 'id');
-  const { reason } = await parseBody(req, passActionSchema);
-  await revokePass(db, id, user.id, reason);
-  return json((await adminPassRows(db, eq(passes.id, id)))[0]);
-}
-
-/** POST /api/console/passes/{id}/refund {reason} — full refund of the pass fee. */
-export async function passRefundHandler(req: HttpRequest): Promise<HttpResponseInit> {
-  const db = getDb();
-  const user = await admin(db, req);
-  const id = requireUuidParam(req, 'id');
-  const { reason } = await parseBody(req, passActionSchema);
-  const provider = activeProvider();
-  const refund = await refundPass(db, id, user.id, reason, provider);
-  // The mock provider settles refunds at once through the signed webhook path.
-  if (provider.name === mockProvider.name) {
-    const signed = signMockEvent({
-      id: mockId('mock_ev'),
-      type: 'refund.processed',
-      refundId: refund.providerRefundId,
-      paymentId: refund.providerPaymentId,
-      amountPaise: refund.amountPaise,
-    });
-    await processWebhook(db, provider.name, signed.rawBody, signed.headers);
-  }
-  return json((await adminPassRows(db, eq(passes.id, id)))[0]);
-}
-
-/** GET /api/console/scans/flagged — flagged checks in the last 7 days. */
-export async function flaggedScansHandler(req: HttpRequest): Promise<HttpResponseInit> {
-  const db = getDb();
-  await admin(db, req);
+  if (status) filters.push(eq(orders.status, orderStatusSchema.parse(status)));
   const rows = await db
-    .select({ s: passScans, ref: passes.ref, shopName: shops.name, clusterName: clusters.name })
-    .from(passScans)
-    .leftJoin(passes, eq(passes.id, passScans.passId))
-    .leftJoin(shops, eq(shops.id, passScans.shopId))
-    .leftJoin(clusters, eq(clusters.id, passScans.clusterId))
-    .where(and(isNotNull(passScans.flag), gt(passScans.at, sql`now() - interval '7 days'`)))
-    .orderBy(desc(passScans.at))
-    .limit(200);
-  const body: FlaggedScan[] = rows.map((r) => ({
-    id: r.s.id,
-    at: r.s.at.toISOString(),
-    result: r.s.result,
-    flag: r.s.flag,
-    passRef: r.ref ? formatPassRef(r.ref) : null,
-    passId: r.s.passId,
-    place: r.shopName ?? r.clusterName ?? '—',
-  }));
+    .select({ o: orders, shop: shops, phone: users.phoneE164 })
+    .from(orders)
+    .innerJoin(shops, eq(shops.id, orders.shopId))
+    .innerJoin(users, eq(users.id, orders.userId))
+    .where(filters.length ? and(...filters) : undefined)
+    .orderBy(desc(orders.createdAt))
+    .limit(100);
+  const body: AdminOrder[] = [];
+  for (const r of rows) {
+    const view = await customerOrderView(db, r.o);
+    body.push({
+      id: r.o.id,
+      code: view.code,
+      status: r.o.status,
+      shopCode: r.shop.shortCode,
+      shopName: r.shop.name,
+      customer: staffPhoneMask(r.phone),
+      placedAt: view.placedAt,
+      confirmBy: view.confirmBy,
+      finalTotalPaise: r.o.finalTotalPaise,
+      fee: { amountPaise: view.fee.amountPaise, status: view.fee.status },
+    });
+  }
   return json(body);
+}
+
+/** POST /api/console/orders/{id}/refund-fee {reason} — goodwill or retry after a failed refund. */
+export async function orderRefundFeeHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const db = getDb();
+  const user = await admin(db, req);
+  const id = requireUuidParam(req, 'id');
+  const { reason } = await parseBody(req, reasonSchema);
+  const refund = await refundFee(db, id, user.id, `Admin: ${reason}`);
+  if (!refund) throw new HttpError(409, 'nothing_to_refund', 'No paid fee on this order');
+  return json({ ok: true });
+}
+
+/** GET/PUT /api/console/shops/{id}/payment-settings — the team sets up YouPI-PG at onboarding. */
+export async function shopPaymentSettingsHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const db = getDb();
+  const user = await admin(db, req);
+  const id = requireUuidParam(req, 'id');
+  const [shop] = await db.select().from(shops).where(eq(shops.id, id));
+  if (!shop) throw new HttpError(404, 'shop_not_found', 'No such shop');
+  if (req.method === 'GET') return json(await settingsView(db, shop));
+  const input = await parseBody(req, merchantPaymentSettingsSchema);
+  return json(await saveSettings(db, shop, user.id, input));
 }
 
 // ---- Metrics ----
 
 /**
- * GET /api/console/metrics?from=&to= — passes issued, pass fees and refunds
- * (platform fees only, never sale amounts — G4), checks and participating shops.
+ * GET /api/console/metrics?from=&to= — orders, platform fees and refunds, and
+ * merchants' sales (for reconciliation only; no commission — G4).
  */
 export async function metricsHandler(req: HttpRequest): Promise<HttpResponseInit> {
   const db = getDb();
@@ -537,68 +465,67 @@ export async function metricsHandler(req: HttpRequest): Promise<HttpResponseInit
   const to = parseQuery(req.query.get('to') ?? istDate(), dateSchema);
   const from = parseQuery(req.query.get('from') ?? addDays(istDate(), -14), dateSchema);
   const range = { from: istDayRange(from).from, to: istDayRange(to).to };
-  const day = (col: SQL | AnyColumn) =>
+  const day = (col: AnyColumn) =>
     sql<string>`to_char((${col} at time zone 'Asia/Kolkata')::date, 'YYYY-MM-DD')`;
 
-  const issued = await db
+  const placed = await db
     .select({
-      day: day(payments.capturedAt),
+      day: day(orders.feePaidAt),
       n: sql<number>`count(*)::int`,
-      paise: sql<number>`coalesce(sum(${payments.amountPaise}), 0)::int`,
+      completed: sql<number>`count(*) filter (where ${orders.status} = 'completed')::int`,
+      cancelled: sql<number>`count(*) filter (where ${orders.status} in ('cancelled','rejected','expired'))::int`,
+      sales: sql<number>`coalesce(sum(${orders.finalTotalPaise}) filter (where ${orders.status} = 'completed'), 0)::int`,
     })
-    .from(payments)
+    .from(orders)
+    .where(and(gte(orders.feePaidAt, range.from), lt(orders.feePaidAt, range.to)))
+    .groupBy(sql`1`);
+  const fees = await db
+    .select({
+      day: day(feePayments.capturedAt),
+      paise: sql<number>`coalesce(sum(${feePayments.amountPaise}), 0)::int`,
+    })
+    .from(feePayments)
     .where(
       and(
-        eq(payments.status, 'captured'),
-        gte(payments.capturedAt, range.from),
-        lt(payments.capturedAt, range.to),
+        eq(feePayments.status, 'captured'),
+        gte(feePayments.capturedAt, range.from),
+        lt(feePayments.capturedAt, range.to),
       ),
     )
     .groupBy(sql`1`);
   const refunded = await db
     .select({
-      day: day(refunds.processedAt),
-      paise: sql<number>`coalesce(sum(${refunds.amountPaise}), 0)::int`,
+      day: day(feeRefunds.processedAt),
+      paise: sql<number>`coalesce(sum(${feeRefunds.amountPaise}), 0)::int`,
     })
-    .from(refunds)
+    .from(feeRefunds)
     .where(
       and(
-        eq(refunds.status, 'processed'),
-        gte(refunds.processedAt, range.from),
-        lt(refunds.processedAt, range.to),
+        eq(feeRefunds.status, 'processed'),
+        gte(feeRefunds.processedAt, range.from),
+        lt(feeRefunds.processedAt, range.to),
       ),
     )
     .groupBy(sql`1`);
-  const checks = await db
-    .select({
-      day: day(passScans.at),
-      n: sql<number>`count(*) filter (where ${passScans.result} = 'valid')::int`,
-      flagged: sql<number>`count(*) filter (where ${passScans.flag} is not null)::int`,
-      shops: sql<number>`count(distinct ${passScans.shopId})::int`,
-    })
-    .from(passScans)
-    .where(and(gte(passScans.at, range.from), lt(passScans.at, range.to)))
-    .groupBy(sql`1`);
 
-  const days = new Set([...issued, ...refunded, ...checks].map((r) => r.day));
+  const days = new Set([...placed, ...fees, ...refunded].map((r) => r.day));
   const rows: MetricsRow[] = [...days].sort().map((d) => {
-    const i = issued.find((r) => r.day === d);
-    const c = checks.find((r) => r.day === d);
+    const p = placed.find((r) => r.day === d);
     return {
       day: d,
-      passesIssued: i?.n ?? 0,
-      feesPaise: i?.paise ?? 0,
+      ordersPlaced: p?.n ?? 0,
+      completed: p?.completed ?? 0,
+      cancelled: p?.cancelled ?? 0,
+      feesPaise: fees.find((r) => r.day === d)?.paise ?? 0,
       refundsPaise: refunded.find((r) => r.day === d)?.paise ?? 0,
-      scans: c?.n ?? 0,
-      flagged: c?.flagged ?? 0,
-      shopsScanning: c?.shops ?? 0,
+      salesPaise: p?.sales ?? 0,
     };
   });
   const sum = (k: keyof MetricsRow) => rows.reduce((n, r) => n + (r[k] as number), 0);
-  const [{ active } = { active: 0 }] = await db
-    .select({ active: sql<number>`count(*)::int` })
-    .from(passes)
-    .where(and(eq(passes.status, 'active'), gt(passes.validTo, sql`now()`)));
+  const [{ waiting } = { waiting: 0 }] = await db
+    .select({ waiting: sql<number>`count(*)::int` })
+    .from(orders)
+    .where(eq(orders.status, 'placed'));
   const [{ visible } = { visible: 0 }] = await db
     .select({ visible: sql<number>`count(*)::int` })
     .from(visibleShops);
@@ -611,13 +538,13 @@ export async function metricsHandler(req: HttpRequest): Promise<HttpResponseInit
     visibleShops: visible,
     totalShops: total,
     totals: {
-      activePasses: active,
-      passesIssued: sum('passesIssued'),
+      ordersPlaced: sum('ordersPlaced'),
+      completed: sum('completed'),
+      awaitingMerchant: waiting,
       feesPaise: sum('feesPaise'),
       refundsPaise: sum('refundsPaise'),
-      netPaise: sum('feesPaise') - sum('refundsPaise'),
-      scans: sum('scans'),
-      flagged: sum('flagged'),
+      netFeesPaise: sum('feesPaise') - sum('refundsPaise'),
+      salesPaise: sum('salesPaise'),
     },
     rows,
   };
@@ -640,7 +567,11 @@ http('consoleLicenceReject', ['POST'], 'console/licences/{id}/reject', licenceRe
 http('consoleBlocked', ['GET'], 'console/users/blocked', blockedUsersHandler);
 http('consoleUnblock', ['POST'], 'console/users/{id}/unblock', unblockHandler);
 http('consoleMetrics', ['GET'], 'console/metrics', metricsHandler);
-http('consolePasses', ['GET'], 'console/passes', passesListHandler);
-http('consolePassRevoke', ['POST'], 'console/passes/{id}/revoke', passRevokeHandler);
-http('consolePassRefund', ['POST'], 'console/passes/{id}/refund', passRefundHandler);
-http('consoleFlaggedScans', ['GET'], 'console/scans/flagged', flaggedScansHandler);
+http('consoleOrders', ['GET'], 'console/orders', ordersListHandler);
+http('consoleOrderRefundFee', ['POST'], 'console/orders/{id}/refund-fee', orderRefundFeeHandler);
+http(
+  'consoleShopPaymentSettings',
+  ['GET', 'PUT'],
+  'console/shops/{id}/payment-settings',
+  shopPaymentSettingsHandler,
+);

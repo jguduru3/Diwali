@@ -6,7 +6,6 @@ import {
   consents,
   dailyShopStats,
   otpRequests,
-  passScans,
   rateLimits,
   shopLicences,
   shops,
@@ -43,7 +42,12 @@ export async function snapshotDailyStats(db: Db, now = new Date()): Promise<numb
     day,
   );
   for (const r of rows) {
-    const values = { scans: r.scans, uniquePasses: r.uniquePasses, flagged: r.flagged };
+    const values = {
+      orders: r.orders,
+      completed: r.completed,
+      cancelled: r.cancelled,
+      salesPaise: r.salesPaise,
+    };
     await db
       .insert(dailyShopStats)
       .values({ shopId: r.shopId, day: r.day, ...values })
@@ -56,16 +60,15 @@ export type PurgeReport = {
   phase: 'daily' | 'season';
   otpRequests: number;
   rateLimits: number;
-  passScans: number;
   customersAnonymised: number;
   dryRun: boolean;
 };
 
 /**
  * G9 data minimisation. Daily: drop OTP and rate-limit rows older than a day.
- * From SEASON_END + 90 days: delete pass scans, anonymise customers, withdraw consents.
- * Staff accounts, daily stats and financial records (passes, payments, refunds,
- * payment events — linked only to the anonymised user id) are kept.
+ * From SEASON_END + 90 days: anonymise customers and withdraw consents. Orders,
+ * bills and payment records are financial records and are kept, linked only to
+ * the anonymised user id. Staff accounts and daily stats are kept.
  */
 export async function purge(db: Db, now = new Date(), dryRun = false): Promise<PurgeReport> {
   const dayAgo = new Date(now.getTime() - 86_400_000);
@@ -91,9 +94,6 @@ export async function purge(db: Db, now = new Date(), dryRun = false): Promise<P
         .from(rateLimits)
         .where(rlOld),
     ),
-    passScans: seasonOver
-      ? await count(db.select({ n: sql<number>`count(*)::int` }).from(passScans))
-      : 0,
     customersAnonymised: seasonOver
       ? await count(
           db
@@ -110,7 +110,6 @@ export async function purge(db: Db, now = new Date(), dryRun = false): Promise<P
     await tx.delete(otpRequests).where(seasonOver ? undefined : otpOld);
     await tx.delete(rateLimits).where(rlOld);
     if (seasonOver) {
-      await tx.delete(passScans);
       const anon = await tx
         .update(users)
         .set({
