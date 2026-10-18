@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { scanRowSchema } from './pass';
 import { phoneSchema } from './schemas';
 
 // ---- Enums (SPEC §6.1) ----
@@ -102,6 +101,13 @@ export const itemSchema = z.object({
   greenRef: z.string(),
   rackCode: z.string().nullable(),
   imageUrl: z.string().nullable(),
+  barcode: z.string().nullable(),
+  /** null = stock not tracked */
+  stockQty: z.number().nullable(),
+  offerPricePaise: z.number().nullable(),
+  offerEndsAt: iso.nullable(),
+  /** what the customer pays today (offer price while it runs) */
+  effectivePricePaise: z.number(),
   isSoldOut: z.boolean(),
   isActive: z.boolean(),
 });
@@ -114,15 +120,6 @@ export const itemsResponseSchema = z.object({
   items: z.array(itemSchema),
 });
 export type ItemsResponse = z.infer<typeof itemsResponseSchema>;
-
-// ---- Gate (ground marshal scans Express Passes) ----
-
-export const gateTodaySchema = z.object({
-  cluster: clusterInfoSchema,
-  scans: z.array(scanRowSchema),
-  counts: z.object({ valid: z.number(), flagged: z.number(), refused: z.number() }),
-});
-export type GateToday = z.infer<typeof gateTodaySchema>;
 
 // ---- Shop app ----
 
@@ -150,12 +147,25 @@ export const itemInputSchema = z
     greenCert: greenCertSchema,
     greenRef: z.string().trim().min(2, 'Green certificate reference is required').max(60),
     rackCode: z.string().trim().max(10).optional(),
+    barcode: z
+      .string()
+      .trim()
+      .regex(/^[0-9A-Za-z-]{4,32}$/, 'Barcode: 4–32 letters, digits or dashes')
+      .nullable()
+      .optional(),
+    stockQty: z.number().int().min(0).max(1_000_000).nullable().optional(),
+    offerPricePaise: z.number().int().positive().max(10_000_000).nullable().optional(),
+    offerEndsAt: z.string().datetime({ offset: true }).nullable().optional(),
     isSoldOut: z.boolean().optional(),
     isActive: z.boolean().optional(),
   })
-  .strict();
+  .strict()
+  .refine((v) => v.offerPricePaise == null || v.offerPricePaise < v.pricePaise, {
+    message: 'Offer price must be lower than the price',
+    path: ['offerPricePaise'],
+  });
 export type ItemInput = z.input<typeof itemInputSchema>;
-export const itemPatchSchema = itemInputSchema.partial().strict();
+export const itemPatchSchema = itemInputSchema.innerType().partial().strict();
 export type ItemPatch = z.input<typeof itemPatchSchema>;
 export const soldOutSchema = z.object({ isSoldOut: z.boolean() }).strict();
 
@@ -167,18 +177,13 @@ export const shopSettingsSchema = z
   .strict();
 export type ShopSettings = z.input<typeof shopSettingsSchema>;
 
-export const shopScansSchema = z.object({
-  date: dateSchema,
-  scans: z.array(scanRowSchema),
-});
-export type ShopScans = z.infer<typeof shopScansSchema>;
-
-/** Pass verifications per day — footfall only, no money (G4). */
+/** The merchant's own daily numbers (their sales, not platform revenue — G4). */
 export const footfallRowSchema = z.object({
   day: dateSchema,
-  scans: z.number(),
-  uniquePasses: z.number(),
-  flagged: z.number(),
+  orders: z.number(),
+  completed: z.number(),
+  cancelled: z.number(),
+  salesPaise: z.number(),
 });
 export type FootfallRow = z.infer<typeof footfallRowSchema>;
 
@@ -200,6 +205,18 @@ export const licenceSchema = z.object({
 export type Licence = z.infer<typeof licenceSchema>;
 
 export const LICENCE_IMAGE_MAX_BYTES = 3 * 1024 * 1024;
+export const ITEM_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
+
+export const imageUploadSchema = z
+  .object({
+    contentType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
+    base64: z
+      .string()
+      .min(100)
+      .max(Math.ceil((ITEM_IMAGE_MAX_BYTES * 4) / 3) + 8),
+  })
+  .strict();
+export type ImageUpload = z.input<typeof imageUploadSchema>;
 export const licenceSubmitSchema = z
   .object({
     licenceNo: z.string().trim().min(3).max(60),
@@ -310,15 +327,18 @@ export const blockedUserSchema = z.object({
 });
 export type BlockedUser = z.infer<typeof blockedUserSchema>;
 
-/** Per-day platform numbers. Fees are the platform's own pass fees, never sale amounts (G4). */
+/**
+ * Per-day platform numbers. Fees are the platform's own ₹30 fees; sales are the
+ * merchants' bills, shown for reconciliation only (G4: no commission).
+ */
 export const metricsRowSchema = z.object({
   day: dateSchema,
-  passesIssued: z.number(),
+  ordersPlaced: z.number(),
+  completed: z.number(),
+  cancelled: z.number(),
   feesPaise: z.number(),
   refundsPaise: z.number(),
-  scans: z.number(),
-  flagged: z.number(),
-  shopsScanning: z.number(),
+  salesPaise: z.number(),
 });
 export type MetricsRow = z.infer<typeof metricsRowSchema>;
 
@@ -328,13 +348,13 @@ export const metricsSchema = z.object({
   visibleShops: z.number(),
   totalShops: z.number(),
   totals: z.object({
-    activePasses: z.number(),
-    passesIssued: z.number(),
+    ordersPlaced: z.number(),
+    completed: z.number(),
+    awaitingMerchant: z.number(),
     feesPaise: z.number(),
     refundsPaise: z.number(),
-    netPaise: z.number(),
-    scans: z.number(),
-    flagged: z.number(),
+    netFeesPaise: z.number(),
+    salesPaise: z.number(),
   }),
   rows: z.array(metricsRowSchema),
 });

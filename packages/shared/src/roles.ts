@@ -1,27 +1,43 @@
 /**
  * Roles (SPEC §2, §6.1). Product names used with the owner:
  *   User   → customer
- *   Vendor → shop_owner (full shop control) | shop_staff (counter only)
+ *   Vendor → shop_owner (merchant: full shop control) | shop_staff (accept orders,
+ *            counter) | shop_packer (packing only) | shop_cashier (Express Pickup counter)
  *   Marshal→ marshal (cluster gate)
  *   Admin  → admin (Truerenewables team)
  */
-export const ROLES = ['customer', 'shop_owner', 'shop_staff', 'marshal', 'admin'] as const;
+export const ROLES = [
+  'customer',
+  'shop_owner',
+  'shop_staff',
+  'marshal',
+  'admin',
+  'shop_packer',
+  'shop_cashier',
+] as const;
 export type Role = (typeof ROLES)[number];
 
-export const VENDOR_ROLES = ['shop_owner', 'shop_staff'] as const satisfies readonly Role[];
+export const VENDOR_ROLES = [
+  'shop_owner',
+  'shop_staff',
+  'shop_packer',
+  'shop_cashier',
+] as const satisfies readonly Role[];
 export type VendorRole = (typeof VENDOR_ROLES)[number];
 
 /** Staff sessions are short-lived (12 h); customers stay signed in for 30 days. */
 export const STAFF_ROLES = [
   'shop_owner',
   'shop_staff',
+  'shop_packer',
+  'shop_cashier',
   'marshal',
   'admin',
 ] as const satisfies readonly Role[];
 
 /** Which roles may open each app area. Admin can open every area for support. */
 export const AREA_ROLES = {
-  shop: ['shop_owner', 'shop_staff', 'admin'],
+  shop: ['shop_owner', 'shop_staff', 'shop_packer', 'shop_cashier', 'admin'],
   gate: ['marshal', 'admin'],
   admin: ['admin'],
 } as const satisfies Record<string, readonly Role[]>;
@@ -45,6 +61,10 @@ export function homePathForRole(role: Role): string {
     case 'shop_owner':
     case 'shop_staff':
       return '/shop';
+    case 'shop_packer':
+      return '/shop/packing';
+    case 'shop_cashier':
+      return '/shop/counter';
     case 'marshal':
       return '/gate';
     case 'admin':

@@ -1,18 +1,9 @@
 /**
- * G5 — words that must never appear in customer- or shop-facing copy, because
- * they make the plan list look like an online sale (SC orders, SPEC §1).
+ * G5 — words that must never appear in customer- or shop-facing copy (SPEC_V3 §2):
+ * pickup only, pay at the counter, no legal guarantees.
  * Checked by `pnpm copy-lint` over i18n catalogues and .tsx string literals.
  */
 export const BANNED_COPY_TERMS = [
-  'order',
-  'orders',
-  'ordered',
-  'reserve',
-  'reserved',
-  'reservation',
-  'reservations',
-  'cart',
-  'checkout',
   'buy now',
   'booking confirmed',
   'delivery',
