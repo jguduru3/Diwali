@@ -1,0 +1,41 @@
+{
+  "name": "api",
+  "version": "0.0.0",
+  "private": true,
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "node build.mjs",
+    "build:watch": "node build.mjs --watch",
+    "start": "func start --port 7071",
+    "dev": "node build.mjs && concurrently -n storage,build,func -c gray,blue,magenta \"azurite --silent --skipApiVersionCheck --location ../../.azurite\" \"node build.mjs --watch\" \"node ../../scripts/wait-port.mjs 10000 && func start --port 7071\"",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:int": "vitest run -c vitest.int.config.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx scripts/migrate.mts",
+    "db:seed": "tsx scripts/seed.mts",
+    "admin:grant": "tsx scripts/grant-admin.mts",
+    "purge:dry-run": "tsx scripts/purge-dry-run.mts"
+  },
+  "dependencies": {
+    "@azure/functions": "^4.6.0",
+    "@azure/identity": "^4.14.0",
+    "@azure/storage-blob": "^12.34.0",
+    "@pataka/shared": "workspace:*",
+    "bcryptjs": "^3.0.3",
+    "drizzle-orm": "^0.45.4",
+    "jose": "^6.2.12",
+    "pg": "^8.13.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.10",
+    "@types/pg": "^8.11.10",
+    "azurite": "^3.37.0",
+    "concurrently": "^9.1.2",
+    "drizzle-kit": "^0.31.11",
+    "embedded-postgres": "16.14.0-beta.17",
+    "esbuild": "^0.24.2",
+    "tsx": "^4.23.15"
+  }
+}

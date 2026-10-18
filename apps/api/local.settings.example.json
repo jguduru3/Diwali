@@ -1,0 +1,16 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "FUNCTIONS_WORKER_RUNTIME": "node",
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "DATABASE_URL": "postgres://pataka:pataka@localhost:5432/pataka",
+    "DATABASE_SSL": "false",
+    "JWT_SECRET": "dev-only-change-me",
+    "OTP_DEV_MODE": "true",
+    "SEASON_END": "2026-11-20",
+    "TZ": "Asia/Kolkata",
+    "DEMO_MODE": "true",
+    "COOKIE_SECURE": "false",
+    "UPLOAD_DIR": "../../.uploads"
+  }
+}

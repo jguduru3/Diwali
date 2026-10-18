@@ -1,0 +1,150 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-display: 'Fraunces', 'Noto Sans Telugu', Georgia, serif;
+  --font-sans: 'Manrope', 'Noto Sans Telugu', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --color-night: #140c24;
+  --color-plum: #2a1745;
+  --color-plum-2: #3d2163;
+  --color-plum-3: #57307f;
+  --color-gold: #e2b24f;
+  --color-gold-light: #f5dc9a;
+  --color-gold-deep: #b98a2c;
+  --color-saffron: #ef7d3c;
+  --color-rose: #d94f7a;
+  --color-ivory: #fbf7f1;
+  --color-sand: #f3ebdf;
+  --color-line: #e8dccb;
+  --color-ink: #1f1830;
+  --color-muted: #6c6280;
+  --color-emerald: #1b8a5a;
+  --color-emerald-soft: #e3f4ec;
+  --color-danger: #b4322a;
+  --color-danger-soft: #fbe7e4;
+
+  --shadow-card: 0 1px 2px rgb(31 24 48 / 0.04), 0 8px 24px -12px rgb(31 24 48 / 0.18);
+  --shadow-lift: 0 2px 4px rgb(31 24 48 / 0.06), 0 18px 40px -18px rgb(42 23 69 / 0.45);
+  --shadow-glow: 0 10px 30px -10px rgb(226 178 79 / 0.65);
+}
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply bg-ivory font-sans text-ink antialiased;
+    background-image:
+      radial-gradient(1200px 500px at 85% -10%, rgb(226 178 79 / 0.12), transparent 60%),
+      radial-gradient(900px 420px at -10% 10%, rgb(217 79 122 / 0.07), transparent 60%);
+    background-attachment: fixed;
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-display tracking-tight text-ink;
+  }
+  :focus-visible {
+    outline: 3px solid var(--color-gold);
+    outline-offset: 2px;
+  }
+  button {
+    cursor: pointer;
+  }
+  /* Keep focused controls clear of the sticky header and filter bar. */
+  main :where(button, a, input, select, textarea, label) {
+    scroll-margin-top: 16rem;
+    scroll-margin-bottom: 7rem;
+  }
+}
+
+@layer components {
+  .night-sky {
+    background-color: var(--color-night);
+    background-image:
+      radial-gradient(2px 2px at 12% 30%, rgb(245 220 154 / 0.9), transparent 60%),
+      radial-gradient(1.5px 1.5px at 28% 70%, rgb(245 220 154 / 0.7), transparent 60%),
+      radial-gradient(2px 2px at 63% 22%, rgb(255 255 255 / 0.8), transparent 60%),
+      radial-gradient(1.5px 1.5px at 78% 60%, rgb(245 220 154 / 0.8), transparent 60%),
+      radial-gradient(2.5px 2.5px at 90% 18%, rgb(239 125 60 / 0.9), transparent 60%),
+      radial-gradient(700px 260px at 80% -40%, rgb(217 79 122 / 0.35), transparent 70%),
+      radial-gradient(800px 300px at 10% 120%, rgb(226 178 79 / 0.22), transparent 70%),
+      linear-gradient(135deg, var(--color-night), var(--color-plum) 55%, var(--color-plum-2));
+  }
+  .gold-text {
+    background: linear-gradient(
+      100deg,
+      var(--color-gold-light),
+      var(--color-gold) 45%,
+      var(--color-saffron)
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .card {
+    @apply rounded-3xl border border-line/70 bg-white;
+    box-shadow: var(--shadow-card);
+  }
+  .hairline {
+    @apply border-line/70;
+  }
+}
+
+/* Grid columns may shrink below their content (scrolling chip rows inside them). */
+.grid > * {
+  min-width: 0;
+}
+
+/* Horizontal chip / tab rows scroll by swipe without a visible scrollbar. */
+.overflow-x-auto {
+  scrollbar-width: none;
+}
+.overflow-x-auto::-webkit-scrollbar {
+  display: none;
+}
+
+/* Leaflet sits under sticky bars */
+.leaflet-container {
+  z-index: 0;
+  font-family: var(--font-sans);
+}
+
+/* 58 mm thermal bill (SPEC §7). Only .print-area is printed. */
+@media print {
+  @page {
+    size: 58mm auto;
+    margin: 2mm;
+  }
+  body {
+    background: #fff !important;
+  }
+  body * {
+    visibility: hidden;
+  }
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+  .print-area {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 54mm;
+    font:
+      9pt/1.3 'Manrope',
+      monospace;
+    color: #000;
+  }
+  .no-print {
+    display: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,30 @@
+node_modules/
+dist/
+coverage/
+*.log
+.env
+.env.*
+!.env.example
+
+# Azure Functions
+apps/api/local.settings.json
+apps/api/bin/
+apps/api/obj/
+
+# Local dev data
+.pgdata/
+__azurite_db*
+__blobstorage__/
+__queuestorage__/
+
+# Playwright
+test-results/
+playwright-report/
+
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+
+# Local storage emulator and uploads
+.azurite/
+.uploads/
