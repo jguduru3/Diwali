@@ -1,12 +1,10 @@
 // Public, unauthenticated catalogue endpoints. Every shop query goes through
 // the visible_shops view (G6), so unlicensed or unverified shops never appear.
 import type { HttpRequest, HttpResponseInit } from '@azure/functions';
-import { and, asc, desc, eq, gt, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import {
-  dateSchema,
   haversineKm,
-  istDate,
   istTime,
   type AreaSummary,
   type ItemsResponse,
@@ -14,12 +12,11 @@ import {
   type ShopSummary,
 } from '@pataka/shared';
 import { getDb, type Db } from '../db/client';
-import { categories, clusters, items, shopLicences, slots, visibleShops } from '../db/schema';
+import { categories, clusters, items, shopLicences, visibleShops } from '../db/schema';
 import { categoryView, getPriceVersion, itemView } from '../lib/catalogue';
 import { HttpError } from '../lib/errors';
 import { http, json, parseQuery } from '../lib/http';
-import { BOOKING_LEAD_MINUTES, bookableDates, daySlots, ensureSlots, slotView } from '../lib/slots';
-import { clusterView } from '../lib/visits';
+import { clusterView } from '../lib/places';
 
 type VisibleShop = typeof visibleShops.$inferSelect;
 
@@ -38,7 +35,7 @@ async function findVisibleShop(db: Db, code: string | undefined): Promise<Visibl
   return shop;
 }
 
-/** Builds list cards: current verified licence, cluster, distance, next free slot. */
+/** Builds list cards: current verified licence, cluster, distance. */
 async function summarize(
   db: Db,
   shops: VisibleShop[],
@@ -46,13 +43,6 @@ async function summarize(
 ): Promise<ShopSummary[]> {
   if (!shops.length) return [];
   const ids = shops.map((s) => s.id);
-  const today = istDate();
-  const tomorrow = bookableDates()[1]!;
-  for (const s of shops) {
-    await ensureSlots(db, s, today);
-    await ensureSlots(db, s, tomorrow);
-  }
-
   const licences = await db
     .select()
     .from(shopLicences)
@@ -68,21 +58,9 @@ async function summarize(
   const clusterRows = clusterIds.length
     ? await db.select().from(clusters).where(inArray(clusters.id, clusterIds))
     : [];
-  const nextSlots = await db
-    .selectDistinctOn([slots.shopId])
-    .from(slots)
-    .where(
-      and(
-        inArray(slots.shopId, ids),
-        gt(slots.startsAt, sql`now() + make_interval(mins => ${BOOKING_LEAD_MINUTES})`),
-        sql`${slots.booked} < ${slots.capacity}`,
-      ),
-    )
-    .orderBy(slots.shopId, asc(slots.startsAt));
 
   const out = shops.map((s): ShopSummary => {
     const licence = licences.find((l) => l.shopId === s.id)!;
-    const next = nextSlots.find((n) => n.shopId === s.id);
     return {
       shortCode: s.shortCode,
       name: s.name,
@@ -104,7 +82,6 @@ async function summarize(
         validTo: licence.validTo,
       },
       cluster: clusterView(clusterRows.find((c) => c.id === s.clusterId) ?? null),
-      nextFreeSlot: next ? slotView(next) : null,
     };
   });
   return origin
@@ -153,7 +130,6 @@ export async function shopDetailHandler(req: HttpRequest): Promise<HttpResponseI
     ...summary!,
     phone: shop.phoneE164,
     priceVersion: await getPriceVersion(db, shop.id),
-    slotMinutes: shop.slotMinutes,
   };
   return json(body);
 }
@@ -183,18 +159,7 @@ export async function shopItemsHandler(req: HttpRequest): Promise<HttpResponseIn
   return { status: 200, jsonBody: body, headers: cache };
 }
 
-/** GET /api/shops/{code}/slots?date=YYYY-MM-DD */
-export async function shopSlotsHandler(req: HttpRequest): Promise<HttpResponseInit> {
-  const db = getDb();
-  const shop = await findVisibleShop(db, req.params.code);
-  const date = parseQuery(req.query.get('date') ?? istDate(), dateSchema);
-  await ensureSlots(db, shop, date);
-  const rows = await daySlots(db, shop.id, date);
-  return json({ date, dates: bookableDates(), slots: rows.map((r) => slotView(r)) });
-}
-
 http('areas', ['GET'], 'areas', areasHandler);
 http('shops', ['GET'], 'shops', shopsHandler);
 http('shopDetail', ['GET'], 'shops/{code}', shopDetailHandler);
 http('shopItems', ['GET'], 'shops/{code}/items', shopItemsHandler);
-http('shopSlots', ['GET'], 'shops/{code}/slots', shopSlotsHandler);

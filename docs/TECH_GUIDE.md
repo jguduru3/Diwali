@@ -1,4 +1,4 @@
-# Festive Diwali — Technical Guide
+# Diwali Express Pickup — Technical Guide
 
 **Audience:** engineers, ops and the pilot team · **Status:** pilot build (Oct 2026) · **Spec:** [SPEC.md](SPEC.md) · **Deploy:** [DEPLOY.md](DEPLOY.md)
 
@@ -24,7 +24,7 @@ Contents
 
 ## 1. What the system does (and must never do)
 
-Festive Diwali is a **shop finder, price list and drive-through queue** for licensed cracker shops.
+Diwali Express Pickup is a **shop finder, price list and drive-through queue** for licensed cracker shops.
 
 1. A customer browses a licensed shop's green-cracker price list and builds a **plan list on their own phone**.
 2. They book a **30-minute pickup slot** and get a **QR ticket** (visit code + plan list).

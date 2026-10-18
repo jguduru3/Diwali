@@ -1,279 +1,317 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { decodePlan, formatPaise, type Item, type PlanPayload } from '@pataka/shared';
+import {
+  decodePlan,
+  formatPaise,
+  parseOrderQr,
+  rupeesToPaise,
+  type PlanPayload,
+  type StaffOrder,
+} from '@pataka/shared';
 import { ErrorText } from '../../components/ErrorText';
+import { QrCode } from '../../components/QrCode';
 import { QrScanner } from '../../components/QrScanner';
-import { Badge, Button, Card, Notice, cx } from '../../components/ui';
+import { Badge, Button, Card, Field, Input, Notice, Segmented, cx } from '../../components/ui';
 import { itemName } from '../../lib/format';
-import { useOwnItems, useServe, useShopContext } from '../../lib/queries';
+import {
+  useCounterCard,
+  useCounterCash,
+  useCounterOpen,
+  useCounterPack,
+  useCounterPoll,
+  useCounterUpi,
+  useCounterUpiSim,
+  useShopContext,
+} from '../../lib/queries';
+import { BillView } from '../customer/OrderPage';
+import { WalkInBill } from './WalkInBill';
 
-type Line = {
-  itemNo: number;
-  qty: number;
-  item: Item | null;
-  soldOut: boolean;
-  priceChanged: boolean;
-  lineTotal: number;
-};
+type Method = 'upi' | 'card' | 'cash';
 
-/**
- * Counter: scan the customer's list QR → pick list (by rack) → bill → print →
- * mark served. The list is decoded and priced HERE, on this device; only the
- * visit code is ever sent to the server (G1, G2).
- */
-export function Counter() {
+function Payment({ order, onUpdate }: { order: StaffOrder; onUpdate: (o: StaffOrder) => void }) {
   const { t } = useTranslation();
   const ctx = useShopContext();
-  const items = useOwnItems();
-  const serve = useServe();
-  const [plan, setPlan] = useState<PlanPayload | null>(null);
-  const [scanError, setScanError] = useState<string | null>(null);
-  const [picked, setPicked] = useState<Set<number>>(new Set());
-  const [served, setServed] = useState(false);
+  const [method, setMethod] = useState<Method>('upi');
+  const [approval, setApproval] = useState('');
+  const [received, setReceived] = useState('');
+  const upi = useCounterUpi();
+  const sim = useCounterUpiSim();
+  const card = useCounterCard();
+  const cash = useCounterCash();
+  const pending =
+    order.counterPayment?.status === 'pending' && order.counterPayment.method === 'upi';
+  const poll = useCounterPoll(order.id, pending);
+  const live = poll.data ?? order;
+  useEffect(() => {
+    if (poll.data?.status === 'completed') onUpdate(poll.data);
+  }, [poll.data, onUpdate]);
+  const due = order.finalTotalPaise ?? 0;
+  const receivedPaise = rupeesToPaise(received);
+  const done = { onSuccess: onUpdate };
+  const payUrl = live.counterPayment?.status === 'pending' ? live.counterPayment.payUrl : null;
+  const simulated = payUrl?.startsWith('upi-simulated://');
 
-  const lines: Line[] = useMemo(() => {
-    if (!plan) return [];
-    const byNo = new Map(items.data?.items.map((i) => [i.itemNo, i]));
-    return plan.lines.map((l) => {
-      const item = byNo.get(l.itemNo) ?? null;
-      const soldOut = !item || item.isSoldOut || !item.isActive;
-      return {
-        ...l,
-        item,
-        soldOut,
-        priceChanged: !!item && item.priceVersion > plan.priceVersion,
-        lineTotal: item && !soldOut ? item.pricePaise * l.qty : 0,
-      };
-    });
-  }, [plan, items.data]);
-  const total = lines.reduce((n, l) => n + l.lineTotal, 0);
-  const byRack = useMemo(() => {
-    const groups = new Map<string, Line[]>();
-    for (const l of lines) {
-      const rack = l.item?.rackCode || t('counter.noRack');
-      groups.set(rack, [...(groups.get(rack) ?? []), l]);
-    }
-    return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
-  }, [lines, t]);
+  return (
+    <Card className="p-6">
+      <h3 className="text-lg font-semibold">
+        {t('counter.step3', { shop: ctx.data?.name ?? '' })}
+      </h3>
+      <p className="mt-2 text-sm text-muted">{t('counter.amountDue')}</p>
+      <p className="font-display text-5xl font-semibold">{formatPaise(due)}</p>
+      <div className="mt-5">
+        <Segmented
+          label={t('counter.step3', { shop: '' })}
+          value={method}
+          onChange={setMethod}
+          options={[
+            { value: 'upi', label: t('counter.upi') },
+            { value: 'card', label: t('counter.card') },
+            { value: 'cash', label: t('counter.cash') },
+          ]}
+        />
+      </div>
 
-  const onScan = (text: string) => {
-    setScanError(null);
-    setServed(false);
-    setPicked(new Set());
-    serve.reset();
-    const r = decodePlan(text);
-    if (!r.ok) {
-      // A bare visit code (typed by hand) is allowed, with an empty list.
-      if (/^[0-9A-Z]{6}$/i.test(text.trim()) && ctx.data) {
-        setPlan({
-          visitCode: text.trim().toUpperCase(),
-          shopCode: ctx.data.shopCode,
-          priceVersion: ctx.data.priceVersion,
-          lines: [],
-        });
-        return;
-      }
-      setPlan(null);
-      setScanError(t(`counter.decode.${r.error}`, { defaultValue: t('counter.badQr') }));
-      return;
-    }
-    if (ctx.data && r.value.shopCode !== ctx.data.shopCode) {
-      setPlan(null);
-      setScanError(t('counter.otherShop', { code: r.value.shopCode }));
-      return;
-    }
-    setPlan(r.value);
-  };
+      {method === 'upi' && (
+        <div className="mt-5 space-y-3">
+          {payUrl ? (
+            <>
+              {simulated ? (
+                <Notice>{t('counter.upiSimulated')}</Notice>
+              ) : (
+                <>
+                  <div className="mx-auto w-full max-w-[16rem] rounded-3xl bg-white p-3 ring-1 ring-line">
+                    <QrCode
+                      text={payUrl}
+                      label={t('counter.upiHelp')}
+                      className="[&>svg]:h-auto [&>svg]:w-full"
+                    />
+                  </div>
+                  <p className="text-center text-sm text-muted">{t('counter.upiHelp')}</p>
+                </>
+              )}
+              <p className="flex items-center justify-center gap-2 text-sm font-semibold">
+                <span className="h-3 w-3 animate-pulse rounded-full bg-gold" />{' '}
+                {t('counter.upiWaiting')}
+              </p>
+              {simulated && (
+                <Button
+                  variant="success"
+                  className="w-full"
+                  disabled={sim.isPending}
+                  onClick={() => sim.mutate({ id: order.id }, done)}
+                >
+                  {t('counter.upiSimulate')}
+                </Button>
+              )}
+            </>
+          ) : (
+            <Button
+              size="lg"
+              className="w-full"
+              disabled={upi.isPending}
+              onClick={() => upi.mutate({ id: order.id }, done)}
+            >
+              {t('counter.upi')} · {formatPaise(due)}
+            </Button>
+          )}
+          <ErrorText error={upi.error ?? sim.error} />
+        </div>
+      )}
 
-  const reset = () => {
-    setPlan(null);
-    setServed(false);
-    setPicked(new Set());
-    serve.reset();
-  };
+      {method === 'card' && (
+        <form
+          className="mt-5 space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            card.mutate({ id: order.id, body: { approvalCode: approval.trim() } }, done);
+          }}
+        >
+          <Field label={t('counter.approval')}>
+            <Input
+              required
+              pattern="[A-Za-z0-9\-]{4,20}"
+              value={approval}
+              onChange={(e) => setApproval(e.target.value)}
+            />
+          </Field>
+          <Button size="lg" className="w-full" disabled={card.isPending}>
+            {t('counter.recordCard')}
+          </Button>
+          <ErrorText error={card.error} />
+        </form>
+      )}
 
-  if (!plan) {
+      {method === 'cash' && (
+        <form
+          className="mt-5 space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (receivedPaise) cash.mutate({ id: order.id, body: { receivedPaise } }, done);
+          }}
+        >
+          <Field label={t('counter.received')}>
+            <Input
+              required
+              inputMode="decimal"
+              value={received}
+              onChange={(e) => setReceived(e.target.value)}
+            />
+          </Field>
+          {receivedPaise != null && receivedPaise >= due && (
+            <p className="text-lg font-semibold text-emerald">
+              {t('counter.change', { amount: formatPaise(receivedPaise - due) })}
+            </p>
+          )}
+          <Button size="lg" className="w-full" disabled={cash.isPending || !receivedPaise}>
+            {t('counter.recordCash')}
+          </Button>
+          <ErrorText error={cash.error} />
+        </form>
+      )}
+    </Card>
+  );
+}
+
+function OrderAtCounter({ initial, onNext }: { initial: StaffOrder; onNext: () => void }) {
+  const { t } = useTranslation();
+  const [order, setOrder] = useState(initial);
+  const pack = useCounterPack();
+  const picked = order.lines.filter((l) => l.status === 'picked');
+
+  if (order.status === 'completed' && order.bill) {
     return (
-      <div className="mx-auto max-w-2xl space-y-5">
-        <Card className="p-6">
-          <h2 className="text-2xl font-semibold">{t('counter.title')}</h2>
-          <p className="mt-1 mb-5 text-muted">{t('counter.subtitle')}</p>
-          <QrScanner
-            onResult={onScan}
-            manualLabel={t('counter.manual')}
-            manualPlaceholder={t('counter.manualPlaceholder')}
-          />
-        </Card>
-        {scanError && <Notice tone="danger">{scanError}</Notice>}
-        <p className="text-center text-xs text-muted">{t('counter.privacy')}</p>
+      <div className="mx-auto max-w-xl space-y-4">
+        <Notice tone="emerald" className="text-base font-semibold">
+          ✓ {t('counter.paid', { no: order.bill.billNo })}
+        </Notice>
+        <BillView bill={order.bill} />
+        <div className="no-print grid gap-3 sm:grid-cols-2">
+          <Button variant="secondary" size="lg" onClick={() => window.print()}>
+            🖨 {t('counter.print')}
+          </Button>
+          <Button size="lg" onClick={onNext}>
+            ⌖ {t('counter.next')}
+          </Button>
+        </div>
       </div>
     );
   }
 
-  const stale = ctx.data && plan.priceVersion !== ctx.data.priceVersion;
-
   return (
     <div className="grid gap-6 lg:grid-cols-2">
-      <section className="no-print">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-2xl font-semibold">{t('counter.pickList')}</h2>
-          <Badge tone="plum">
-            {plan.visitCode ? `${t('counter.ticket')} ${plan.visitCode}` : t('counter.walkIn')}
-          </Badge>
-        </div>
-        {lines.length === 0 && <Notice>{t('counter.emptyList')}</Notice>}
-        <div className="space-y-4">
-          {byRack.map(([rack, rows]) => (
-            <Card key={rack} className="overflow-hidden">
-              <p className="bg-plum px-5 py-2.5 font-display text-lg font-semibold text-white">
-                {t('counter.rack', { rack })}
-              </p>
-              <ul className="divide-y divide-line/70">
-                {rows.map((l) => {
-                  const done = picked.has(l.itemNo);
-                  return (
-                    <li key={l.itemNo}>
-                      <label
-                        className={cx(
-                          'flex min-h-16 cursor-pointer items-center gap-4 px-5 py-3',
-                          l.soldOut && 'bg-danger-soft/60',
-                          done && 'opacity-50',
-                        )}
-                      >
-                        <input
-                          type="checkbox"
-                          className="h-7 w-7 shrink-0 accent-emerald"
-                          checked={done}
-                          disabled={l.soldOut}
-                          onChange={() =>
-                            setPicked((p) => {
-                              const n = new Set(p);
-                              if (n.has(l.itemNo)) n.delete(l.itemNo);
-                              else n.add(l.itemNo);
-                              return n;
-                            })
-                          }
-                        />
-                        <span className="font-display text-3xl font-semibold text-plum">
-                          {l.qty}×
-                        </span>
-                        <span
-                          className={cx('flex-1 text-lg font-semibold', done && 'line-through')}
-                        >
-                          {l.item ? itemName(l.item) : t('plan.unknownItem', { no: l.itemNo })}
-                          <span className="block text-sm font-normal text-muted">
-                            #{l.itemNo} {l.item?.packDesc && `· ${l.item.packDesc}`}
-                          </span>
-                        </span>
-                        {l.soldOut && <Badge tone="danger">{t('shopPage.soldOut')}</Badge>}
-                      </label>
-                    </li>
-                  );
-                })}
-              </ul>
-            </Card>
-          ))}
-        </div>
-      </section>
-
-      <section>
-        <Card className="print-area p-6">
-          <div className="text-center">
-            <p className="font-display text-xl font-semibold">{ctx.data?.name}</p>
-            <p className="text-xs text-muted">
-              {plan.visitCode ? `${t('counter.ticket')} ${plan.visitCode}` : t('counter.walkIn')} ·{' '}
-              {new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}
+      <section className="space-y-4">
+        <Card className="overflow-hidden">
+          <div className="night-sky px-6 py-5 text-white">
+            <p className="text-xs font-bold tracking-[0.2em] text-gold-light uppercase">
+              {t('counter.step1')}
+            </p>
+            <p className="mt-1 font-display text-6xl font-semibold">#{order.packNo}</p>
+            <p className="mt-1 text-white/80">
+              {order.code} · {t('counter.customer', { phone: order.customer })}
             </p>
           </div>
-          {stale && <Notice className="no-print mt-4">{t('counter.stale')}</Notice>}
-          <table className="mt-4 w-full text-sm">
-            <thead>
-              <tr className="border-b border-line text-left text-xs text-muted uppercase">
-                <th className="py-2">{t('counter.item')}</th>
-                <th className="py-2 text-right">{t('counter.qty')}</th>
-                <th className="py-2 text-right">{t('counter.rate')}</th>
-                <th className="py-2 text-right">{t('counter.amount')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lines.map((l) => (
-                <tr
-                  key={l.itemNo}
-                  className={cx(
-                    'border-b border-line/60',
-                    l.soldOut && 'bg-danger-soft/60 text-danger',
-                    l.priceChanged && !l.soldOut && 'bg-gold-light/40',
-                  )}
-                >
-                  <td className="py-2 pr-2">
-                    {l.item ? itemName(l.item) : `#${l.itemNo}`}
-                    {l.soldOut && (
-                      <span className="block text-xs font-semibold">
-                        {t('counter.notAvailable')}
-                      </span>
-                    )}
-                    {l.priceChanged && !l.soldOut && (
-                      <span className="block text-xs font-semibold text-gold-deep">
-                        {t('counter.priceChanged')}
-                      </span>
-                    )}
-                  </td>
-                  <td className="py-2 text-right">{l.qty}</td>
-                  <td className="py-2 text-right">
-                    {l.item ? formatPaise(l.item.pricePaise) : '—'}
-                  </td>
-                  <td className="py-2 text-right font-semibold">
-                    {l.soldOut ? '—' : formatPaise(l.lineTotal)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td colSpan={3} className="pt-4 font-display text-lg font-semibold">
-                  {t('counter.total')}
-                </td>
-                <td className="pt-4 text-right font-display text-2xl font-semibold">
-                  {formatPaise(total)}
-                </td>
-              </tr>
-            </tfoot>
-          </table>
-          <p className="mt-5 border-t border-dashed border-line pt-3 text-center text-xs font-semibold">
-            {t('counter.payHere')}
-          </p>
-          <p className="mt-1 text-center text-[10px] text-muted">{t('safety.notice')}</p>
+          <ul className="divide-y divide-line/70 px-6 py-2">
+            {picked.map((l) => (
+              <li key={l.id} className="flex justify-between py-2 text-sm">
+                <span>
+                  <span className="font-semibold">{l.pickedQty}×</span> {itemName(l)}
+                </span>
+                <span>{formatPaise(l.unitPricePaise * l.pickedQty)}</span>
+              </li>
+            ))}
+          </ul>
         </Card>
-
-        <div className="no-print mt-4 grid gap-3 sm:grid-cols-2">
-          <Button variant="secondary" size="lg" onClick={() => window.print()}>
-            🖨 {t('counter.print')}
-          </Button>
-          {plan.visitCode ? (
-            <Button
-              variant="success"
-              size="lg"
-              disabled={serve.isPending || served}
-              onClick={() => serve.mutate(plan.visitCode!, { onSuccess: () => setServed(true) })}
-            >
-              ✓ {served ? t('counter.servedDone') : t('shopApp.markServed')}
-            </Button>
-          ) : (
-            <Button variant="dark" size="lg" onClick={reset}>
-              {t('counter.done')}
-            </Button>
-          )}
-        </div>
-        <ErrorText error={serve.error} />
-        {served && (
-          <Notice tone="emerald" className="no-print mt-3">
-            {t('counter.servedNote')}
-          </Notice>
+      </section>
+      <section className="space-y-4">
+        {!order.packMatched ? (
+          <Card className="p-6">
+            <h3 className="text-lg font-semibold">{t('counter.step2')}</h3>
+            <p className="mb-4 text-sm text-muted">{t('counter.step2Help', { n: order.packNo })}</p>
+            <QrScanner
+              busy={pack.isPending}
+              onResult={(qr) =>
+                pack.mutate({ id: order.id, body: { qr } }, { onSuccess: setOrder })
+              }
+              manualLabel={t('counter.manual')}
+              manualPlaceholder={t('counter.manualPlaceholder')}
+            />
+            <div className="mt-3">
+              <ErrorText error={pack.error} />
+            </div>
+          </Card>
+        ) : (
+          <>
+            <Badge tone="emerald" className="text-sm">
+              ✓ {t('counter.packMatched', { n: order.packNo })}
+            </Badge>
+            <Payment order={order} onUpdate={setOrder} />
+          </>
         )}
-        <Button variant="ghost" className="no-print mt-3 w-full" onClick={reset}>
-          ⌖ {t('counter.next')}
+        <Button variant="ghost" className="w-full" onClick={onNext}>
+          {t('common.cancel')}
         </Button>
       </section>
+    </div>
+  );
+}
+
+/**
+ * Express Pickup: customer pickup QR → pack sticker must match → payment to
+ * the merchant (UPI via their YouPI-PG, card or cash) → bill → next customer.
+ * A walk-in list QR (PP1…) opens the on-device walk-in bill instead.
+ */
+export function Counter() {
+  const { t } = useTranslation();
+  const ctx = useShopContext();
+  const open = useCounterOpen();
+  const [order, setOrder] = useState<StaffOrder | null>(null);
+  const [walkIn, setWalkIn] = useState<PlanPayload | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
+
+  const reset = () => {
+    setOrder(null);
+    setWalkIn(null);
+    setScanError(null);
+    open.reset();
+  };
+
+  const onScan = (text: string) => {
+    setScanError(null);
+    open.reset();
+    if (parseOrderQr(text)) {
+      open.mutate({ id: '', body: { qr: text } }, { onSuccess: setOrder });
+      return;
+    }
+    const r = decodePlan(text);
+    if (!r.ok) {
+      setScanError(t(`counter.decode.${r.error}`, { defaultValue: t('counter.badQr') }));
+      return;
+    }
+    if (ctx.data && r.value.shopCode !== ctx.data.shopCode) {
+      setScanError(t('counter.otherShop', { code: r.value.shopCode }));
+      return;
+    }
+    setWalkIn(r.value);
+  };
+
+  if (order) return <OrderAtCounter key={order.id} initial={order} onNext={reset} />;
+  if (walkIn) return <WalkInBill plan={walkIn} onDone={reset} />;
+
+  return (
+    <div className="mx-auto max-w-2xl space-y-5">
+      <Card className="p-6">
+        <h2 className="text-2xl font-semibold">{t('counter.title')}</h2>
+        <p className="mt-1 mb-5 text-muted">{t('counter.subtitle')}</p>
+        <QrScanner
+          busy={open.isPending}
+          onResult={onScan}
+          manualLabel={t('counter.manual')}
+          manualPlaceholder={t('counter.manualPlaceholder')}
+        />
+      </Card>
+      {scanError && <Notice tone="danger">{scanError}</Notice>}
+      <ErrorText error={open.error} />
+      <p className={cx('text-center text-xs text-muted')}>{t('counter.privacy')}</p>
     </div>
   );
 }

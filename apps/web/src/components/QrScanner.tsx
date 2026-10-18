@@ -7,15 +7,20 @@ type Detector = {
 };
 type DetectorCtor = new (o: { formats: string[] }) => Detector;
 
-function nativeDetector(): Detector | null {
+/** Product barcodes the packer scans (EAN/UPC on boxes, Code 128/39 on shop labels). */
+const BARCODE_FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code'];
+
+function nativeDetector(mode: 'qr' | 'barcode'): Detector | null {
   const Ctor = (window as unknown as { BarcodeDetector?: DetectorCtor }).BarcodeDetector;
-  return Ctor ? new Ctor({ formats: ['qr_code'] }) : null;
+  return Ctor ? new Ctor({ formats: mode === 'qr' ? ['qr_code'] : BARCODE_FORMATS }) : null;
 }
 
 /**
- * Reads a QR with the camera (BarcodeDetector, falling back to ZXing), from a
- * photo, or from typed/pasted text — so the counter and gate keep working
- * when the camera is unavailable. Decoding happens entirely on the device.
+ * Reads a QR (or, in barcode mode, a product barcode) with the camera
+ * (BarcodeDetector, falling back to ZXing), from a photo, or from typed/pasted
+ * text — a handheld scanner types into the box too — so the counter, packing
+ * and gate keep working without a camera. Decoding happens on the device.
+ * `continuous` keeps the camera on between reads (packing many items).
  */
 export function QrScanner({
   onResult,
@@ -23,12 +28,18 @@ export function QrScanner({
   manualPlaceholder,
   dark = false,
   busy = false,
+  mode = 'qr',
+  continuous = false,
+  autoFocus = false,
 }: {
   onResult: (text: string) => void;
   manualLabel: string;
   manualPlaceholder: string;
   dark?: boolean;
   busy?: boolean;
+  mode?: 'qr' | 'barcode';
+  continuous?: boolean;
+  autoFocus?: boolean;
 }) {
   const { t } = useTranslation();
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -37,6 +48,7 @@ export function QrScanner({
   const [camError, setCamError] = useState<string | null>(null);
   const [manual, setManual] = useState('');
   const handled = useRef(false);
+  const last = useRef<{ text: string; at: number } | null>(null);
 
   const stop = () => {
     stopRef.current?.();
@@ -45,7 +57,15 @@ export function QrScanner({
   };
   useEffect(() => stop, []);
 
-  const deliver = (text: string) => {
+  const deliver = (text: string, fromCamera = false) => {
+    if (continuous && fromCamera) {
+      // Same code seen again within 1.5 s is the same unit still in view.
+      const now = Date.now();
+      if (last.current && last.current.text === text && now - last.current.at < 1500) return;
+      last.current = { text, at: now };
+      onResult(text.trim());
+      return;
+    }
     if (handled.current) return;
     handled.current = true;
     stop();
@@ -57,7 +77,7 @@ export function QrScanner({
     setCamError(null);
     handled.current = false;
     try {
-      const native = nativeDetector();
+      const native = nativeDetector(mode);
       if (native && navigator.mediaDevices?.getUserMedia) {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: { ideal: 'environment' } },
@@ -70,7 +90,10 @@ export function QrScanner({
           if (!alive) return;
           try {
             const [hit] = await native.detect(video);
-            if (hit?.rawValue) return deliver(hit.rawValue);
+            if (hit?.rawValue) {
+              deliver(hit.rawValue, true);
+              if (!continuous) return;
+            }
           } catch {
             // frame not ready
           }
@@ -84,14 +107,15 @@ export function QrScanner({
         void tick();
         return;
       }
-      const { BrowserQRCodeReader } = await import('@zxing/browser');
-      const reader = new BrowserQRCodeReader();
+      const zxing = await import('@zxing/browser');
+      const reader =
+        mode === 'qr' ? new zxing.BrowserQRCodeReader() : new zxing.BrowserMultiFormatReader();
       setScanning(true);
       const controls = await reader.decodeFromVideoDevice(
         undefined,
         videoRef.current!,
         (result) => {
-          if (result) deliver(result.getText());
+          if (result) deliver(result.getText(), true);
         },
       );
       stopRef.current = () => controls.stop();
@@ -106,15 +130,17 @@ export function QrScanner({
     setCamError(null);
     handled.current = false;
     try {
-      const native = nativeDetector();
+      const native = nativeDetector(mode);
       if (native) {
         const [hit] = await native.detect(await createImageBitmap(file));
         if (hit?.rawValue) return deliver(hit.rawValue);
       }
-      const { BrowserQRCodeReader } = await import('@zxing/browser');
+      const zxing = await import('@zxing/browser');
       const url = URL.createObjectURL(file);
       try {
-        const result = await new BrowserQRCodeReader().decodeFromImageUrl(url);
+        const reader =
+          mode === 'qr' ? new zxing.BrowserQRCodeReader() : new zxing.BrowserMultiFormatReader();
+        const result = await reader.decodeFromImageUrl(url);
         deliver(result.getText());
       } finally {
         URL.revokeObjectURL(url);
@@ -206,6 +232,7 @@ export function QrScanner({
           placeholder={manualPlaceholder}
           autoCapitalize="characters"
           autoComplete="off"
+          autoFocus={autoFocus}
           className={cx(
             'mt-0 font-mono tracking-wider',
             dark && 'border-white/20 bg-white/10 text-white placeholder:text-white/40',

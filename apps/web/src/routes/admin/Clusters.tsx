@@ -6,7 +6,7 @@ import { useAdminClusters, useCreateCluster, usePatchCluster } from '../../lib/q
 
 const num = (s: string) => (s.trim() ? Number(s) : undefined);
 
-/** Shop clusters (grounds) with holding-bay count and gate notes. */
+/** Shop clusters (grounds) with pickup notes shown to customers. */
 export function Clusters() {
   const { t } = useTranslation();
   const list = useAdminClusters();
@@ -19,7 +19,6 @@ export function Clusters() {
     address: '',
     lat: '',
     lng: '',
-    bayCount: '20',
     gateNotes: '',
   };
   const [f, setF] = useState(blank);
@@ -35,7 +34,6 @@ export function Clusters() {
         address: f.address || undefined,
         lat: num(f.lat),
         lng: num(f.lng),
-        bayCount: num(f.bayCount),
         gateNotes: f.gateNotes || undefined,
       },
       { onSuccess: () => (setOpen(false), setF(blank)) },
@@ -56,15 +54,6 @@ export function Clusters() {
             </Field>
             <Field label={t('home.area')}>
               <Input required minLength={2} value={f.area} onChange={set('area')} />
-            </Field>
-            <Field label={t('admin.bays')}>
-              <Input
-                type="number"
-                min={1}
-                max={500}
-                value={f.bayCount}
-                onChange={set('bayCount')}
-              />
             </Field>
             <Field label={t('admin.address')} className="sm:col-span-3">
               <Input value={f.address} onChange={set('address')} />
@@ -105,7 +94,6 @@ export function Clusters() {
               />
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
-              <Badge tone="plum">{t('admin.bayCount', { count: c.bayCount })}</Badge>
               <Badge tone="muted">{t('admin.shopCount', { count: c.shopCount })}</Badge>
             </div>
             {c.gateNotes && <p className="mt-3 text-sm text-muted">{c.gateNotes}</p>}

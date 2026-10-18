@@ -11,10 +11,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icon.svg'],
       manifest: {
-        name: 'Festive Diwali',
-        short_name: 'Festive Diwali',
-        description:
-          'Licensed green-cracker shops in Hyderabad: price lists, plan lists and pickup slots.',
+        name: 'Diwali Express Pickup',
+        short_name: 'Diwali Express',
+        description: 'Order from licensed Diwali shops in Hyderabad and collect at Express Pickup.',
         theme_color: '#140c24',
         background_color: '#fbf7f1',
         display: 'standalone',

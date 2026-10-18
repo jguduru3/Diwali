@@ -4,27 +4,27 @@ import { formatPaise, rupeesToPaise } from './money';
 
 describe('findBannedTerms', () => {
   it.each([
-    ['Your order is ready', ['order']],
-    ['Reserve online now', ['reserve']],
+    ['Buy now', ['buy now']],
     ['Booking confirmed!', ['booking confirmed']],
-    ['Add to cart', ['cart']],
+    ['Free home delivery', ['delivery']],
+    ['We deliver to you', ['deliver']],
     ['100% legal', ['100% legal']],
   ])('%s', (text, expected) => {
     expect(findBannedTerms(text)).toEqual(expected);
   });
 
   it('ignores words that only contain a banned term', () => {
-    expect(findBannedTerms('border, cartoon, reorder-free, preserves')).toEqual([]);
+    expect(findBannedTerms('deliverable-free, nowbuy, legalese')).toEqual([]);
   });
 
   it('allows the legal reference in the mandatory safety notice', () => {
     expect(findBannedTerms('Burst only 8–10 pm, as per Supreme Court orders.')).toEqual([]);
-    expect(findBannedTerms('Supreme Court orders. Your order is ready')).toEqual(['order']);
+    expect(findBannedTerms('Supreme Court orders. Delivery today')).toEqual(['delivery']);
   });
 
   it('passes approved wording', () => {
     expect(
-      findBannedTerms('Plan your list and book a pickup slot. Prices final at the counter.'),
+      findBannedTerms('Place your order, collect it at the Express Pickup counter and pay there.'),
     ).toEqual([]);
   });
 });

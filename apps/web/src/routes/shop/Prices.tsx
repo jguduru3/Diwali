@@ -23,8 +23,10 @@ import {
   cx,
 } from '../../components/ui';
 import { categoryName, itemName } from '../../lib/format';
+import { photoToJpegBase64 } from '../../lib/image';
 import {
   useCreateItem,
+  useItemImage,
   useOwnItems,
   usePatchItem,
   useShopContext,
@@ -40,6 +42,18 @@ type Draft = {
   greenCert: GreenCert;
   greenRef: string;
   rackCode: string;
+  offer: string;
+  offerEnds: string;
+  barcode: string;
+  stock: string;
+};
+
+/** What the form produces, besides the draft strings. */
+type Parsed = {
+  pricePaise: number;
+  offerPricePaise: number | null;
+  offerEndsAt: string | null;
+  stockQty: number | null;
 };
 
 const emptyDraft = (cats: Category[]): Draft => ({
@@ -51,7 +65,16 @@ const emptyDraft = (cats: Category[]): Draft => ({
   greenCert: 'CSIR_NEERI_SWAS',
   greenRef: '',
   rackCode: '',
+  offer: '',
+  offerEnds: '',
+  barcode: '',
+  stock: '',
 });
+
+/** "2026-11-08T22:00" (IST wall clock from the input) → ISO instant. */
+const istLocalToIso = (v: string) => (v ? new Date(`${v}:00+05:30`).toISOString() : null);
+const isoToIstLocal = (iso: string | null) =>
+  iso ? new Date(new Date(iso).getTime() + 5.5 * 3_600_000).toISOString().slice(0, 16) : '';
 
 function ItemForm({
   categories,
@@ -63,7 +86,7 @@ function ItemForm({
 }: {
   categories: Category[];
   initial: Draft;
-  onSubmit: (d: Draft, pricePaise: number) => void;
+  onSubmit: (d: Draft, parsed: Parsed) => void;
   onCancel: () => void;
   busy: boolean;
   error: unknown;
@@ -71,13 +94,24 @@ function ItemForm({
   const { t } = useTranslation();
   const [d, setD] = useState(initial);
   const [priceErr, setPriceErr] = useState(false);
+  const [offerErr, setOfferErr] = useState(false);
   const set = (k: keyof Draft) => (e: { target: { value: string } }) =>
     setD({ ...d, [k]: e.target.value });
   const submit = (e: FormEvent) => {
     e.preventDefault();
     const paise = rupeesToPaise(d.price);
+    const offer = d.offer.trim() ? rupeesToPaise(d.offer) : null;
+    const badOffer = d.offer.trim() !== '' && (!offer || (!!paise && offer >= paise));
     setPriceErr(!paise);
-    if (paise) onSubmit(d, paise);
+    setOfferErr(badOffer);
+    if (paise && !badOffer) {
+      onSubmit(d, {
+        pricePaise: paise,
+        offerPricePaise: offer,
+        offerEndsAt: offer ? istLocalToIso(d.offerEnds) : null,
+        stockQty: d.stock.trim() === '' ? null : Math.max(0, Math.floor(Number(d.stock))),
+      });
+    }
   };
   return (
     <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2">
@@ -111,6 +145,35 @@ function ItemForm({
           aria-invalid={priceErr}
         />
       </Field>
+      <Field label={t('prices.offer')} hint={t('prices.offerHint')}>
+        <Input
+          inputMode="decimal"
+          value={d.offer}
+          onChange={set('offer')}
+          placeholder="₹"
+          aria-invalid={offerErr}
+        />
+      </Field>
+      <Field label={t('prices.offerEnds')}>
+        <Input
+          type="datetime-local"
+          value={d.offerEnds}
+          onChange={set('offerEnds')}
+          disabled={!d.offer.trim()}
+        />
+      </Field>
+      <Field label={t('prices.barcode')} hint={t('prices.barcodeHint')}>
+        <Input
+          value={d.barcode}
+          onChange={set('barcode')}
+          inputMode="numeric"
+          pattern="[0-9A-Za-z\-]{4,32}"
+          maxLength={32}
+        />
+      </Field>
+      <Field label={t('prices.stock')} hint={t('prices.stockHint')}>
+        <Input type="number" min={0} value={d.stock} onChange={set('stock')} />
+      </Field>
       <Field label={t('prices.rack')} hint={t('prices.rackHint')}>
         <Input value={d.rackCode} onChange={set('rackCode')} placeholder="B3" maxLength={10} />
       </Field>
@@ -128,6 +191,7 @@ function ItemForm({
       </Field>
       <div className="space-y-3 sm:col-span-2">
         {priceErr && <p className="text-sm text-danger">{t('prices.priceInvalid')}</p>}
+        {offerErr && <p className="text-sm text-danger">{t('prices.offerInvalid')}</p>}
         <ErrorText error={error} />
         <div className="flex gap-3">
           <Button disabled={busy}>{t('common.save')}</Button>
@@ -149,11 +213,60 @@ const toDraft = (i: Item): Draft => ({
   greenCert: i.greenCert,
   greenRef: i.greenRef,
   rackCode: i.rackCode ?? '',
+  offer: i.offerPricePaise ? String(i.offerPricePaise / 100) : '',
+  offerEnds: isoToIstLocal(i.offerEndsAt),
+  barcode: i.barcode ?? '',
+  stock: i.stockQty == null ? '' : String(i.stockQty),
 });
 
 const opt = (s: string) => (s.trim() ? s.trim() : undefined);
 
-/** Price list editor. Owners edit everything; counter staff toggle sold-out only. */
+const toBody = (d: Draft, p: Parsed) => ({
+  categoryId: d.categoryId,
+  nameEn: d.nameEn.trim(),
+  nameTe: opt(d.nameTe),
+  packDesc: opt(d.packDesc),
+  pricePaise: p.pricePaise,
+  offerPricePaise: p.offerPricePaise,
+  offerEndsAt: p.offerEndsAt,
+  barcode: d.barcode.trim() || null,
+  stockQty: p.stockQty,
+  greenCert: d.greenCert,
+  greenRef: d.greenRef.trim(),
+  rackCode: opt(d.rackCode),
+});
+
+function PhotoButton({ item }: { item: Item }) {
+  const { t } = useTranslation();
+  const upload = useItemImage();
+  const [tooBig, setTooBig] = useState(false);
+  return (
+    <span>
+      <label className="inline-flex min-h-10 cursor-pointer items-center rounded-2xl px-3 text-sm font-semibold text-plum hover:bg-plum/5">
+        📷 {upload.isPending ? t('common.loading') : t('prices.uploadPhoto')}
+        <input
+          type="file"
+          accept="image/*"
+          className="sr-only"
+          disabled={upload.isPending}
+          onChange={async (e) => {
+            const file = e.target.files?.[0];
+            e.target.value = '';
+            if (!file) return;
+            const base64 = await photoToJpegBase64(file, 900);
+            const big = base64.length > 2_600_000;
+            setTooBig(big);
+            if (!big) upload.mutate({ id: item.id, image: { contentType: 'image/jpeg', base64 } });
+          }}
+        />
+      </label>
+      {tooBig && <span className="text-xs text-danger">{t('prices.photoTooBig')}</span>}
+      <ErrorText error={upload.error} />
+    </span>
+  );
+}
+
+/** Products: owners edit photos, prices, offers, barcodes and stock; staff and packers toggle sold-out. */
 export function Prices() {
   const { t } = useTranslation();
   const ctx = useShopContext();
@@ -192,21 +305,7 @@ export function Prices() {
             busy={create.isPending}
             error={create.error}
             onCancel={() => setAdding(false)}
-            onSubmit={(d, pricePaise) =>
-              create.mutate(
-                {
-                  categoryId: d.categoryId,
-                  nameEn: d.nameEn.trim(),
-                  nameTe: opt(d.nameTe),
-                  packDesc: opt(d.packDesc),
-                  pricePaise,
-                  greenCert: d.greenCert,
-                  greenRef: d.greenRef.trim(),
-                  rackCode: opt(d.rackCode),
-                },
-                { onSuccess: () => setAdding(false) },
-              )
-            }
+            onSubmit={(d, p) => create.mutate(toBody(d, p), { onSuccess: () => setAdding(false) })}
           />
         </Card>
       )}
@@ -221,21 +320,9 @@ export function Prices() {
                 busy={patch.isPending}
                 error={patch.error}
                 onCancel={() => setEditing(null)}
-                onSubmit={(d, pricePaise) =>
+                onSubmit={(d, p) =>
                   patch.mutate(
-                    {
-                      id: item.id,
-                      patch: {
-                        categoryId: d.categoryId,
-                        nameEn: d.nameEn.trim(),
-                        nameTe: opt(d.nameTe),
-                        packDesc: opt(d.packDesc),
-                        pricePaise,
-                        greenCert: d.greenCert,
-                        greenRef: d.greenRef.trim(),
-                        rackCode: opt(d.rackCode),
-                      },
-                    },
+                    { id: item.id, patch: toBody(d, p) },
                     { onSuccess: () => setEditing(null) },
                   )
                 }
@@ -243,14 +330,29 @@ export function Prices() {
             ) : (
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
                 <div className="flex min-w-0 flex-1 items-start gap-4">
-                  <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-sand font-display font-semibold text-gold-deep">
-                    #{item.itemNo}
-                  </span>
+                  {item.imageUrl ? (
+                    <img
+                      src={item.imageUrl}
+                      alt=""
+                      className="h-14 w-14 shrink-0 rounded-xl object-cover ring-1 ring-line"
+                    />
+                  ) : (
+                    <span className="grid h-14 w-14 shrink-0 place-items-center rounded-xl bg-sand font-display font-semibold text-gold-deep">
+                      #{item.itemNo}
+                    </span>
+                  )}
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline justify-between gap-3">
                       <p className="font-semibold">{itemName(item)}</p>
-                      <span className="shrink-0 font-display text-xl font-semibold">
-                        {formatPaise(item.pricePaise)}
+                      <span className="shrink-0 text-right">
+                        <span className="font-display text-xl font-semibold">
+                          {formatPaise(item.effectivePricePaise)}
+                        </span>
+                        {item.effectivePricePaise < item.pricePaise && (
+                          <span className="ml-2 text-sm text-muted line-through">
+                            {formatPaise(item.pricePaise)}
+                          </span>
+                        )}
                       </span>
                     </div>
                     <div className="mt-1.5 flex flex-wrap items-center gap-2 text-sm text-muted">
@@ -264,6 +366,15 @@ export function Prices() {
                         <Badge tone="muted">{t('counter.rack', { rack: item.rackCode })}</Badge>
                       )}
                       <GreenBadge cert={item.greenCert} reference={item.greenRef} />
+                      {item.barcode && <Badge tone="muted">▥ {item.barcode}</Badge>}
+                      {item.stockQty != null && (
+                        <Badge tone={item.stockQty <= 5 ? 'danger' : 'muted'}>
+                          {t('prices.left', { count: item.stockQty })}
+                        </Badge>
+                      )}
+                      {item.effectivePricePaise < item.pricePaise && (
+                        <Badge tone="saffron">{t('shopPage.offer')}</Badge>
+                      )}
                       {!item.isActive && <Badge tone="muted">{t('prices.hidden')}</Badge>}
                     </div>
                   </div>
@@ -281,7 +392,8 @@ export function Prices() {
                     </span>
                   </label>
                   {canEdit && (
-                    <span className="flex gap-1">
+                    <span className="flex flex-wrap items-center gap-1">
+                      <PhotoButton item={item} />
                       <Button size="sm" variant="secondary" onClick={() => setEditing(item.id)}>
                         {t('common.edit')}
                       </Button>

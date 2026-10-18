@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { CONSENT_VERSION } from './constants';
 import { normalizeIndianPhone } from './phone';
-import { ROLES } from './roles';
+import { ROLES, VENDOR_ROLES, type Role } from './roles';
 
 export const healthResponseSchema = z
   .object({
@@ -84,7 +84,7 @@ export const assignRoleSchema = z
   })
   .strict()
   .superRefine((v, ctx) => {
-    if ((v.role === 'shop_owner' || v.role === 'shop_staff') && !v.shopShortCode) {
+    if ((VENDOR_ROLES as readonly Role[]).includes(v.role) && !v.shopShortCode) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['shopShortCode'],

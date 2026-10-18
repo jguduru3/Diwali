@@ -1,17 +1,34 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import type { ShopContext } from '@pataka/shared';
 import { ErrorText } from '../../components/ErrorText';
 import { Badge, Select, Spinner, cx } from '../../components/ui';
 import { useAdminShops, useShopContext, useShopScope } from '../../lib/queries';
 
-const tabs = [
-  { to: '/shop', key: 'today', end: true, owner: false },
-  { to: '/shop/counter', key: 'counter', end: false, owner: false },
-  { to: '/shop/prices', key: 'prices', end: false, owner: false },
-  { to: '/shop/slots', key: 'slots', end: false, owner: true },
-  { to: '/shop/licence', key: 'licence', end: false, owner: true },
-  { to: '/shop/report', key: 'report', end: false, owner: true },
-] as const;
+type ShopRole = ShopContext['role'];
+const OWNER: ShopRole[] = ['shop_owner', 'admin'];
+
+/** Each shop role sees only its own screens (SPEC_V3 §3); the API checks again. */
+const tabs: { to: string; key: string; end: boolean; roles: ShopRole[] }[] = [
+  { to: '/shop', key: 'orders', end: true, roles: [...OWNER, 'shop_staff'] },
+  {
+    to: '/shop/packing',
+    key: 'packing',
+    end: false,
+    roles: [...OWNER, 'shop_staff', 'shop_packer'],
+  },
+  {
+    to: '/shop/counter',
+    key: 'counter',
+    end: false,
+    roles: [...OWNER, 'shop_staff', 'shop_cashier'],
+  },
+  { to: '/shop/prices', key: 'prices', end: false, roles: [...OWNER, 'shop_staff', 'shop_packer'] },
+  { to: '/shop/hours', key: 'hours', end: false, roles: OWNER },
+  { to: '/shop/payments', key: 'payments', end: false, roles: OWNER },
+  { to: '/shop/licence', key: 'licence', end: false, roles: OWNER },
+  { to: '/shop/report', key: 'report', end: false, roles: OWNER },
+];
 
 function AdminShopPicker() {
   const { t } = useTranslation();
@@ -59,7 +76,9 @@ export function ShopLayout() {
                 {ctx.data.visible ? t('shopApp.listed') : t('shopApp.hidden')}
               </Badge>
               {ctx.data.cluster && <Badge tone="muted">{ctx.data.cluster.name}</Badge>}
-              {!ctx.data.canEdit && <Badge tone="gold">{t('roles.shop_staff')}</Badge>}
+              {ctx.data.role !== 'shop_owner' && ctx.data.role !== 'admin' && (
+                <Badge tone="gold">{t(`roles.${ctx.data.role}`)}</Badge>
+              )}
             </div>
           )}
         </div>
@@ -71,7 +90,7 @@ export function ShopLayout() {
         className="no-print mb-6 flex gap-1 overflow-x-auto rounded-2xl border border-line bg-white p-1.5 shadow-[var(--shadow-card)]"
       >
         {tabs
-          .filter((tab) => !tab.owner || ctx.data?.canEdit)
+          .filter((tab) => ctx.data && tab.roles.includes(ctx.data.role))
           .map((tab) => (
             <NavLink
               key={tab.to}

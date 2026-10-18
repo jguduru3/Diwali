@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import {
   adminMembersResponseSchema,
   ROLES,
+  VENDOR_ROLES,
   staffMemberSchema,
   type AssignRole,
   type Role,
@@ -15,7 +16,7 @@ import { api } from '../../lib/api';
 
 const MEMBERS_KEY = ['admin', 'members'] as const;
 
-/** Admin: give phone numbers the vendor, marshal or admin role. */
+/** Admin: give phone numbers a merchant (owner, staff, packer, cashier), marshal or admin role. */
 export function Members() {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -40,7 +41,7 @@ export function Members() {
     },
   });
 
-  const needsShop = role === 'shop_owner' || role === 'shop_staff';
+  const needsShop = (VENDOR_ROLES as readonly Role[]).includes(role);
   const needsCluster = role === 'marshal';
 
   const submit = (e: FormEvent) => {

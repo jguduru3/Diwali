@@ -1,4 +1,4 @@
-// Festive Diwali — Azure infrastructure (SPEC §11).
+// Diwali Express Pickup — Azure infrastructure (SPEC §11).
 // Deploy into an existing resource group:
 //   az deployment group create -g rg-festive-<env> -f infra/main.bicep -p infra/params.<env>.json -p <secure params>
 targetScope = 'resourceGroup'
@@ -27,14 +27,23 @@ param jwtSecret string
 @secure()
 param msg91AuthKey string = ''
 param msg91TemplateId string = ''
+@description('L1 legal gate (SPEC_V3 §2): online ordering. Keep false until a written legal opinion clears it.')
+param orderingEnabled bool = false
+@description('Platform-fee payment adapter. "mock" is refused in prod; leave empty until an authorised provider adapter exists.')
+param paymentProvider string = ''
+@secure()
+@minLength(32)
+@description('Encrypts merchants\' YouPI-PG webhook secrets at rest.')
+param merchantSecretsKey string
 @description('Object id of the CI service principal (GitHub OIDC). Gets blob upload and secret read rights.')
 param deployerPrincipalId string = ''
 
 var isProd = env == 'prod'
 var effectiveDemo = isProd ? false : demoMode
 var effectiveOtpDev = isProd ? false : otpDevMode
+var effectiveProvider = isProd ? paymentProvider : (empty(paymentProvider) ? 'mock' : paymentProvider)
 var suffix = uniqueString(resourceGroup().id)
-var tags = { app: 'festive-diwali', env: env }
+var tags = { app: 'diwali-express-pickup', env: env }
 
 // ---------------- Monitoring ----------------
 
@@ -90,6 +99,13 @@ resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01'
 resource licencesContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
   parent: blobService
   name: 'licences'
+  properties: { publicAccess: 'None' }
+}
+
+// Product photos. Served to customers through GET /api/media, so the container stays private.
+resource shopMediaContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+  parent: blobService
+  name: 'shop-media'
   properties: { publicAccess: 'None' }
 }
 
@@ -160,6 +176,7 @@ var secrets = {
   'MIGRATION-DATABASE-URL': 'postgres://${postgresAdminLogin}:${uriComponent(postgresAdminPassword)}@${pgHost}:5432/festive'
   'APP-DB-PASSWORD': appDbPassword
   'JWT-SECRET': jwtSecret
+  'MERCHANT-SECRETS-KEY': merchantSecretsKey
   'MSG91-AUTH-KEY': empty(msg91AuthKey) ? 'not-set' : msg91AuthKey
   'MSG91-TEMPLATE-ID': empty(msg91TemplateId) ? 'not-set' : msg91TemplateId
 }
@@ -230,6 +247,10 @@ resource func 'Microsoft.Web/sites@2024-04-01' = {
         { name: 'DEMO_MODE', value: string(effectiveDemo) }
         { name: 'SEASON_END', value: seasonEnd }
         { name: 'STORAGE_ACCOUNT_NAME', value: storage.name }
+        { name: 'ORDERING_ENABLED', value: string(orderingEnabled) }
+        { name: 'PAYMENT_PROVIDER', value: effectiveProvider }
+        { name: 'MERCHANT_SECRETS_KEY', value: '@Microsoft.KeyVault(SecretUri=${vaultUri}secrets/MERCHANT-SECRETS-KEY)' }
+        { name: 'PUBLIC_ORIGIN', value: empty(domain) ? '' : 'https://${domain}' }
       ]
     }
     functionAppConfig: {

@@ -11,17 +11,11 @@ export const GREEN_CERTS = [
   'CSIR_NEERI_OTHER',
 ] as const;
 export const LICENCE_STATUSES = ['pending', 'verified', 'rejected', 'expired'] as const;
-export const VISIT_STATUSES = ['booked', 'arrived', 'served', 'no_show', 'cancelled'] as const;
-export const VEHICLES = ['car', 'bike', 'walk'] as const;
 
 export const greenCertSchema = z.enum(GREEN_CERTS);
 export const licenceStatusSchema = z.enum(LICENCE_STATUSES);
-export const visitStatusSchema = z.enum(VISIT_STATUSES);
-export const vehicleSchema = z.enum(VEHICLES);
 export type GreenCert = z.infer<typeof greenCertSchema>;
 export type LicenceStatus = z.infer<typeof licenceStatusSchema>;
-export type VisitStatus = z.infer<typeof visitStatusSchema>;
-export type Vehicle = z.infer<typeof vehicleSchema>;
 
 export const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD');
 export const timeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:MM');
@@ -30,14 +24,9 @@ export const shopCodeSchema = z
   .trim()
   .toUpperCase()
   .regex(/^[A-Z0-9]{3,6}$/, 'Shop code: 3–6 letters or digits');
-export const visitCodeSchema = z
-  .string()
-  .trim()
-  .toUpperCase()
-  .regex(/^[0-9A-HJKMNP-TV-Z]{6}$/, 'Visit code: 6 characters');
 const iso = z.string();
 
-// ---- Public: places, catalogue, slots ----
+// ---- Public: places, catalogue ----
 
 export const areaSchema = z.object({
   area: z.string(),
@@ -52,18 +41,6 @@ export const licenceBadgeSchema = z.object({
   licenceType: z.string(),
   validTo: dateSchema,
 });
-
-export const slotSchema = z.object({
-  id: z.string().uuid(),
-  startsAt: iso,
-  endsAt: iso,
-  capacity: z.number(),
-  booked: z.number(),
-  remaining: z.number(),
-  /** false when full or starting in less than 30 minutes */
-  bookable: z.boolean(),
-});
-export type Slot = z.infer<typeof slotSchema>;
 
 export const clusterInfoSchema = z.object({
   id: z.string().uuid(),
@@ -90,14 +67,12 @@ export const shopSummarySchema = z.object({
   distanceKm: z.number().nullable(),
   licence: licenceBadgeSchema,
   cluster: clusterInfoSchema.nullable(),
-  nextFreeSlot: slotSchema.nullable(),
 });
 export type ShopSummary = z.infer<typeof shopSummarySchema>;
 
 export const shopDetailSchema = shopSummarySchema.extend({
   phone: z.string().nullable(),
   priceVersion: z.number(),
-  slotMinutes: z.number(),
 });
 export type ShopDetail = z.infer<typeof shopDetailSchema>;
 
@@ -126,6 +101,13 @@ export const itemSchema = z.object({
   greenRef: z.string(),
   rackCode: z.string().nullable(),
   imageUrl: z.string().nullable(),
+  barcode: z.string().nullable(),
+  /** null = stock not tracked */
+  stockQty: z.number().nullable(),
+  offerPricePaise: z.number().nullable(),
+  offerEndsAt: iso.nullable(),
+  /** what the customer pays today (offer price while it runs) */
+  effectivePricePaise: z.number(),
   isSoldOut: z.boolean(),
   isActive: z.boolean(),
 });
@@ -139,79 +121,6 @@ export const itemsResponseSchema = z.object({
 });
 export type ItemsResponse = z.infer<typeof itemsResponseSchema>;
 
-// ---- Visits (queue tokens: no items, no amounts — G1, G4) ----
-
-export const createVisitSchema = z
-  .object({
-    shopShortCode: shopCodeSchema,
-    slotId: z.string().uuid(),
-    vehicle: vehicleSchema.optional(),
-  })
-  .strict();
-export type CreateVisit = z.input<typeof createVisitSchema>;
-
-export const visitSchema = z.object({
-  code: z.string(),
-  status: visitStatusSchema,
-  vehicle: vehicleSchema.nullable(),
-  bayNo: z.number().nullable(),
-  slot: z.object({ startsAt: iso, endsAt: iso }),
-  shop: z.object({
-    shortCode: z.string(),
-    name: z.string(),
-    address: z.string().nullable(),
-    lat: z.number().nullable(),
-    lng: z.number().nullable(),
-  }),
-  cluster: clusterInfoSchema.nullable(),
-  arrivedAt: iso.nullable(),
-  servedAt: iso.nullable(),
-  createdAt: iso,
-});
-export type Visit = z.infer<typeof visitSchema>;
-
-export const currentVisitResponseSchema = z.object({ visit: visitSchema.nullable() });
-
-// ---- Gate ----
-
-export const gateCheckinSchema = z
-  .object({
-    code: visitCodeSchema,
-    bayNo: z.number().int().min(1).max(500).optional(),
-  })
-  .strict();
-export type GateCheckin = z.input<typeof gateCheckinSchema>;
-
-export const gateCheckinResultSchema = z.object({
-  code: z.string(),
-  bayNo: z.number(),
-  shop: z.object({ shortCode: z.string(), name: z.string() }),
-  slot: z.object({ startsAt: iso, endsAt: iso }),
-  vehicle: vehicleSchema.nullable(),
-});
-export type GateCheckinResult = z.infer<typeof gateCheckinResultSchema>;
-
-export const queueVisitSchema = z.object({
-  code: z.string(),
-  status: visitStatusSchema,
-  vehicle: vehicleSchema.nullable(),
-  bayNo: z.number().nullable(),
-  shopCode: z.string(),
-  shopName: z.string(),
-  slotStartsAt: iso,
-  slotEndsAt: iso,
-  arrivedAt: iso.nullable(),
-  servedAt: iso.nullable(),
-});
-export type QueueVisit = z.infer<typeof queueVisitSchema>;
-
-export const gateTodaySchema = z.object({
-  cluster: clusterInfoSchema.extend({ bayCount: z.number() }),
-  baysInUse: z.array(z.object({ bayNo: z.number(), code: z.string(), shopName: z.string() })),
-  visits: z.array(queueVisitSchema),
-});
-export type GateToday = z.infer<typeof gateTodaySchema>;
-
 // ---- Shop app ----
 
 export const shopContextSchema = z.object({
@@ -222,10 +131,10 @@ export const shopContextSchema = z.object({
   visible: z.boolean(),
   openFrom: z.string().nullable(),
   openTo: z.string().nullable(),
-  slotMinutes: z.number(),
-  defaultCapacityPerSlot: z.number(),
   priceVersion: z.number(),
   canEdit: z.boolean(),
+  /** the caller's role here: decides which shop tabs they see */
+  role: z.enum(['shop_owner', 'shop_staff', 'shop_packer', 'shop_cashier', 'admin']),
   cluster: clusterInfoSchema.nullable(),
 });
 export type ShopContext = z.infer<typeof shopContextSchema>;
@@ -240,12 +149,25 @@ export const itemInputSchema = z
     greenCert: greenCertSchema,
     greenRef: z.string().trim().min(2, 'Green certificate reference is required').max(60),
     rackCode: z.string().trim().max(10).optional(),
+    barcode: z
+      .string()
+      .trim()
+      .regex(/^[0-9A-Za-z-]{4,32}$/, 'Barcode: 4–32 letters, digits or dashes')
+      .nullable()
+      .optional(),
+    stockQty: z.number().int().min(0).max(1_000_000).nullable().optional(),
+    offerPricePaise: z.number().int().positive().max(10_000_000).nullable().optional(),
+    offerEndsAt: z.string().datetime({ offset: true }).nullable().optional(),
     isSoldOut: z.boolean().optional(),
     isActive: z.boolean().optional(),
   })
-  .strict();
+  .strict()
+  .refine((v) => v.offerPricePaise == null || v.offerPricePaise < v.pricePaise, {
+    message: 'Offer price must be lower than the price',
+    path: ['offerPricePaise'],
+  });
 export type ItemInput = z.input<typeof itemInputSchema>;
-export const itemPatchSchema = itemInputSchema.partial().strict();
+export const itemPatchSchema = itemInputSchema.innerType().partial().strict();
 export type ItemPatch = z.input<typeof itemPatchSchema>;
 export const soldOutSchema = z.object({ isSoldOut: z.boolean() }).strict();
 
@@ -253,36 +175,17 @@ export const shopSettingsSchema = z
   .object({
     openFrom: timeSchema,
     openTo: timeSchema,
-    defaultCapacityPerSlot: z.number().int().min(1).max(200),
   })
   .strict();
 export type ShopSettings = z.input<typeof shopSettingsSchema>;
 
-export const daySlotsSchema = z
-  .object({
-    date: dateSchema,
-    openFrom: timeSchema,
-    openTo: timeSchema,
-    capacity: z.number().int().min(1).max(200),
-  })
-  .strict();
-export type DaySlots = z.input<typeof daySlotsSchema>;
-
-export const slotCapacitySchema = z.object({ capacity: z.number().int().min(0).max(200) }).strict();
-
-export const shopTodaySchema = z.object({
-  date: dateSchema,
-  slots: z.array(slotSchema.extend({ visits: z.array(queueVisitSchema) })),
-});
-export type ShopToday = z.infer<typeof shopTodaySchema>;
-
+/** The merchant's own daily numbers (their sales, not platform revenue — G4). */
 export const footfallRowSchema = z.object({
   day: dateSchema,
-  booked: z.number(),
-  arrived: z.number(),
-  served: z.number(),
-  noShow: z.number(),
+  orders: z.number(),
+  completed: z.number(),
   cancelled: z.number(),
+  salesPaise: z.number(),
 });
 export type FootfallRow = z.infer<typeof footfallRowSchema>;
 
@@ -304,6 +207,18 @@ export const licenceSchema = z.object({
 export type Licence = z.infer<typeof licenceSchema>;
 
 export const LICENCE_IMAGE_MAX_BYTES = 3 * 1024 * 1024;
+export const ITEM_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
+
+export const imageUploadSchema = z
+  .object({
+    contentType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
+    base64: z
+      .string()
+      .min(100)
+      .max(Math.ceil((ITEM_IMAGE_MAX_BYTES * 4) / 3) + 8),
+  })
+  .strict();
+export type ImageUpload = z.input<typeof imageUploadSchema>;
 export const licenceSubmitSchema = z
   .object({
     licenceNo: z.string().trim().min(3).max(60),
@@ -332,7 +247,6 @@ export const clusterInputSchema = z
     address: z.string().trim().max(200).optional(),
     lat: z.number().min(-90).max(90).optional(),
     lng: z.number().min(-180).max(180).optional(),
-    bayCount: z.number().int().min(1).max(500).optional(),
     gateNotes: z.string().trim().max(300).optional(),
     isActive: z.boolean().optional(),
   })
@@ -341,7 +255,6 @@ export type ClusterInput = z.input<typeof clusterInputSchema>;
 export const clusterPatchSchema = clusterInputSchema.partial().strict();
 
 export const adminClusterSchema = clusterInfoSchema.extend({
-  bayCount: z.number(),
   isActive: z.boolean(),
   shopCount: z.number(),
 });
@@ -359,7 +272,6 @@ export const shopInputSchema = z
     phone: phoneSchema.optional(),
     openFrom: timeSchema.optional(),
     openTo: timeSchema.optional(),
-    defaultCapacityPerSlot: z.number().int().min(1).max(200).optional(),
     isLive: z.boolean().optional(),
   })
   .strict();
@@ -380,7 +292,6 @@ export const adminShopSchema = z.object({
   clusterName: z.string().nullable(),
   openFrom: z.string().nullable(),
   openTo: z.string().nullable(),
-  defaultCapacityPerSlot: z.number(),
   isLive: z.boolean(),
   visible: z.boolean(),
   licenceStatus: licenceStatusSchema.nullable(),
@@ -414,24 +325,42 @@ export const licenceDecisionSchema = z
 export const blockedUserSchema = z.object({
   userId: z.string().uuid(),
   phone: z.string(),
-  noShowStrikes: z.number(),
   blockedUntil: iso.nullable(),
 });
 export type BlockedUser = z.infer<typeof blockedUserSchema>;
 
+/**
+ * Per-day platform numbers. Fees are the platform's own ₹30 fees; sales are the
+ * merchants' bills, shown for reconciliation only (G4: no commission).
+ */
 export const metricsRowSchema = z.object({
-  shopCode: z.string(),
-  shopName: z.string(),
   day: dateSchema,
-  booked: z.number(),
-  arrived: z.number(),
-  served: z.number(),
-  noShow: z.number(),
+  ordersPlaced: z.number(),
+  completed: z.number(),
   cancelled: z.number(),
-  noShowRate: z.number().nullable(),
-  medianArriveToServeMin: z.number().nullable(),
+  feesPaise: z.number(),
+  refundsPaise: z.number(),
+  salesPaise: z.number(),
 });
 export type MetricsRow = z.infer<typeof metricsRowSchema>;
+
+export const metricsSchema = z.object({
+  from: dateSchema,
+  to: dateSchema,
+  visibleShops: z.number(),
+  totalShops: z.number(),
+  totals: z.object({
+    ordersPlaced: z.number(),
+    completed: z.number(),
+    awaitingMerchant: z.number(),
+    feesPaise: z.number(),
+    refundsPaise: z.number(),
+    netFeesPaise: z.number(),
+    salesPaise: z.number(),
+  }),
+  rows: z.array(metricsRowSchema),
+});
+export type Metrics = z.infer<typeof metricsSchema>;
 
 // ---- Demo mode ----
 

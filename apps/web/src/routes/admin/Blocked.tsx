@@ -4,7 +4,7 @@ import { Button, Card, EmptyState, Spinner } from '../../components/ui';
 import { dayIST } from '../../lib/format';
 import { useBlocked, useUnblock } from '../../lib/queries';
 
-/** Numbers blocked after 3 no-shows; admins can lift the block. */
+/** Numbers blocked for misuse cannot place orders; admins can lift the block. */
 export function Blocked() {
   const { t } = useTranslation();
   const list = useBlocked();
@@ -20,8 +20,7 @@ export function Blocked() {
           <div className="flex-1">
             <p className="font-mono font-semibold">{u.phone}</p>
             <p className="text-sm text-muted">
-              {t('admin.strikes', { count: u.noShowStrikes })}
-              {u.blockedUntil && ` · ${t('admin.until', { date: dayIST(u.blockedUntil) })}`}
+              {u.blockedUntil && t('admin.until', { date: dayIST(u.blockedUntil) })}
             </p>
           </div>
           <Button

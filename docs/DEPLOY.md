@@ -1,4 +1,4 @@
-# Deploying Festive Diwali to Azure
+# Deploying Diwali Express Pickup to Azure
 
 Everything is created by [`infra/main.bicep`](../infra/main.bicep) and deployed by
 [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml):
@@ -24,7 +24,7 @@ with required reviewers).
 2. **GitHub → Azure identity (OIDC, no stored secret)**
 
    ```bash
-   az ad app create --display-name festive-diwali-deploy
+   az ad app create --display-name diwali-express-pickup-deploy
    az ad sp create --id <appId>
    # trust GitHub for each environment
    az ad app federated-credential create --id <appId> --parameters '{
@@ -39,16 +39,17 @@ with required reviewers).
 
 3. **GitHub secrets** (repo or per environment):
 
-   | Secret                     | Value                                             |
-   | -------------------------- | ------------------------------------------------- |
-   | `AZURE_CLIENT_ID`          | app (client) id from step 2                       |
-   | `AZURE_TENANT_ID`          | tenant id                                         |
-   | `AZURE_SUBSCRIPTION_ID`    | subscription id                                   |
-   | `AZURE_DEPLOYER_OBJECT_ID` | `az ad sp show --id <appId> --query id -o tsv`    |
-   | `PG_ADMIN_PASSWORD`        | strong password (migrations only)                 |
-   | `APP_DB_PASSWORD`          | strong password (runtime DB role `festive_app`)   |
-   | `JWT_SECRET`               | 48+ random characters (`openssl rand -base64 48`) |
-   | `MSG91_AUTH_KEY`           | MSG91 auth key (prod; may be empty in dev)        |
+   | Secret                     | Value                                                               |
+   | -------------------------- | ------------------------------------------------------------------- |
+   | `AZURE_CLIENT_ID`          | app (client) id from step 2                                         |
+   | `AZURE_TENANT_ID`          | tenant id                                                           |
+   | `AZURE_SUBSCRIPTION_ID`    | subscription id                                                     |
+   | `AZURE_DEPLOYER_OBJECT_ID` | `az ad sp show --id <appId> --query id -o tsv`                      |
+   | `PG_ADMIN_PASSWORD`        | strong password (migrations only)                                   |
+   | `APP_DB_PASSWORD`          | strong password (runtime DB role `festive_app`)                     |
+   | `JWT_SECRET`               | 48+ random characters (`openssl rand -base64 48`)                   |
+   | `MERCHANT_SECRETS_KEY`     | 48+ random characters; encrypts merchants' YouPI-PG webhook secrets |
+   | `MSG91_AUTH_KEY`           | MSG91 auth key (prod; may be empty in dev)                          |
 
    Variable `MSG91_TEMPLATE_ID`: the DLT-approved OTP template id (must contain `##otp##`/`otp`).
 

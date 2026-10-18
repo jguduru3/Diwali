@@ -1,48 +1,87 @@
-// Shop app (vendor). Owners edit the price list, hours and licence; counter
-// staff toggle sold-out and serve visitors. The counter decodes the customer's
-// list QR on the device: no endpoint here accepts a list (G1, G2).
+// Shop app (merchant). Owners manage products, photos, prices, offers, hours,
+// licence and counter payment settings; staff confirm orders; packers pick and
+// pack; cashiers hand over packs and take payment for the merchant (SPEC_V3).
 import type { HttpRequest, HttpResponseInit } from '@azure/functions';
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import {
+  ITEM_IMAGE_MAX_BYTES,
   addDays,
+  cardPaymentSchema,
+  cashPaymentSchema,
   dateSchema,
+  imageUploadSchema,
   istDate,
   itemInputSchema,
   itemPatchSchema,
   licenceSubmitSchema,
+  lineRefSchema,
+  merchantPaymentSettingsSchema,
+  packScanSchema,
+  proposeAlternateSchema,
+  qrInputSchema,
+  reasonSchema,
   shopSettingsSchema,
-  slotCapacitySchema,
   soldOutSchema,
-  daySlotsSchema,
-  visitCodeSchema,
+  type MerchantPaymentSettings,
+  type OrderStatus,
   type ShopContext,
-  type ShopToday,
 } from '@pataka/shared';
+import type { z } from 'zod';
 import { getDb, type Db } from '../db/client';
 import {
   categories,
   clusters,
   items,
+  merchantPaymentSettings,
   shopLicences,
   shops,
-  slots,
   visibleShops,
-  visits,
 } from '../db/schema';
-import { requireShop, requireUuidParam, type ShopRow } from '../lib/access';
+import { requireShop, requireUuidParam, type ShopRole, type ShopRow } from '../lib/access';
 import { audit } from '../lib/audit';
 import { bumpPriceVersion, categoryView, getPriceVersion, itemView } from '../lib/catalogue';
 import { HttpError } from '../lib/errors';
 import { http, json, parseBody, parseQuery } from '../lib/http';
-import { applyDaySlots, bookableDates, daySlots, ensureSlots, slotView } from '../lib/slots';
-import { fileStore, licenceBlobPath, sniffImage } from '../lib/storage';
+import {
+  confirmSimulatedUpi,
+  matchPack,
+  openByCustomerQr,
+  paymentSettings,
+  pollUpi,
+  recordCard,
+  recordCash,
+  startUpi,
+} from '../lib/counter';
+import { env } from '../lib/env';
+import {
+  confirmOrder,
+  finishPacking,
+  markOutOfStock,
+  pickByHand,
+  proposeAlternate,
+  rejectOrder,
+  reprintSticker,
+  scanItem,
+  shopOrder,
+  staffOrderSummaries,
+  staffOrderView,
+  startPacking,
+} from '../lib/orders';
+import { clusterView } from '../lib/places';
+import { rateLimit } from '../lib/rateLimit';
 import { footfall, licenceView } from '../lib/reports';
-import { addStrike, clusterView, queueVisitView, releaseSlot } from '../lib/visits';
+import { encryptSecret } from '../lib/secrets';
+import { fileStore, itemImagePath, licenceBlobPath, sniffImage } from '../lib/storage';
 
 // ---- Context ----
 
-async function shopContext(db: Db, shop: ShopRow, canEdit: boolean): Promise<ShopContext> {
+async function shopContext(
+  db: Db,
+  shop: ShopRow,
+  canEdit: boolean,
+  role: ShopRole,
+): Promise<ShopContext> {
   const [visible] = await db
     .select({ id: visibleShops.id })
     .from(visibleShops)
@@ -58,10 +97,9 @@ async function shopContext(db: Db, shop: ShopRow, canEdit: boolean): Promise<Sho
     visible: !!visible,
     openFrom: shop.openFrom?.slice(0, 5) ?? null,
     openTo: shop.openTo?.slice(0, 5) ?? null,
-    slotMinutes: shop.slotMinutes,
-    defaultCapacityPerSlot: shop.defaultCapacityPerSlot,
     priceVersion: await getPriceVersion(db, shop.id),
     canEdit,
+    role,
     cluster: clusterView(cluster ?? null),
   };
 }
@@ -69,8 +107,8 @@ async function shopContext(db: Db, shop: ShopRow, canEdit: boolean): Promise<Sho
 /** GET /api/shop/context */
 export async function shopContextHandler(req: HttpRequest): Promise<HttpResponseInit> {
   const db = getDb();
-  const { shop, isOwner } = await requireShop(db, req);
-  return json(await shopContext(db, shop, isOwner));
+  const { shop, isOwner, role } = await requireShop(db, req);
+  return json(await shopContext(db, shop, isOwner, role));
 }
 
 // ---- Price list ----
@@ -87,7 +125,7 @@ export async function shopItemsListHandler(req: HttpRequest): Promise<HttpRespon
     shopCode: shop.shortCode,
     priceVersion: await getPriceVersion(db, shop.id),
     categories: cats.map(categoryView),
-    items: rows.map(itemView),
+    items: rows.map((r) => itemView(r)),
   });
 }
 
@@ -102,8 +140,8 @@ async function assertCategoryAllowed(db: Db, categoryId: string) {
 /** POST /api/shop/items (owner) */
 export async function shopItemCreateHandler(req: HttpRequest): Promise<HttpResponseInit> {
   const db = getDb();
-  const { user, shop } = await requireShop(db, req, { ownerOnly: true });
-  const input = await parseBody(req, itemInputSchema);
+  const { user, shop } = await requireShop(db, req, { can: 'catalogue' });
+  const input = toItemValues(await parseBody(req, itemInputSchema));
   await assertCategoryAllowed(db, input.categoryId);
   const created = await db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${shop.id}))`);
@@ -127,24 +165,35 @@ export async function shopItemCreateHandler(req: HttpRequest): Promise<HttpRespo
   return json(itemView(created), 201);
 }
 
-/** PATCH /api/shop/items/{id} — owners: any field; staff: sold-out only. */
+/** API strings → DB values (offer end time is an ISO string on the wire). */
+function toItemValues<T extends { offerEndsAt?: string | null }>(input: T) {
+  const { offerEndsAt, ...rest } = input;
+  return {
+    ...rest,
+    ...(offerEndsAt !== undefined
+      ? { offerEndsAt: offerEndsAt ? new Date(offerEndsAt) : null }
+      : {}),
+  };
+}
+
+/** PATCH /api/shop/items/{id} — owners: any field; other staff: sold-out only. */
 export async function shopItemPatchHandler(req: HttpRequest): Promise<HttpResponseInit> {
   const db = getDb();
-  const access = await requireShop(db, req);
+  const access = await requireShop(db, req, { can: 'soldOut' });
   const id = requireUuidParam(req, 'id');
-  const patch = await parseBody(req, itemPatchSchema);
+  const patch = toItemValues(await parseBody(req, itemPatchSchema));
   const keys = Object.keys(patch);
   if (!access.isOwner && keys.some((k) => k !== 'isSoldOut')) {
-    throw new HttpError(403, 'owner_only', 'Counter staff can only mark items sold out');
+    throw new HttpError(403, 'owner_only', 'Only the owner can change products and prices');
   }
   if (patch.categoryId) await assertCategoryAllowed(db, patch.categoryId);
   return json(await updateItem(db, access.shop.id, access.user.id, id, patch));
 }
 
-/** PATCH /api/shop/items/{id}/sold-out {isSoldOut} — owners and staff. */
+/** PATCH /api/shop/items/{id}/sold-out {isSoldOut} — owners, staff and packers. */
 export async function shopItemSoldOutHandler(req: HttpRequest): Promise<HttpResponseInit> {
   const db = getDb();
-  const { shop, user } = await requireShop(db, req);
+  const { shop, user } = await requireShop(db, req, { can: 'soldOut' });
   const id = requireUuidParam(req, 'id');
   const { isSoldOut } = await parseBody(req, soldOutSchema);
   return json(await updateItem(db, shop.id, user.id, id, { isSoldOut }));
@@ -177,205 +226,254 @@ async function updateItem(
   });
 }
 
-// ---- Hours and slots ----
+// ---- Hours ----
 
-/** PUT /api/shop/settings — default hours/capacity, re-applied to upcoming days. */
+/** PUT /api/shop/settings — opening hours (shown as open/closed on the shop list). */
 export async function shopSettingsHandler(req: HttpRequest): Promise<HttpResponseInit> {
   const db = getDb();
-  const { user, shop } = await requireShop(db, req, { ownerOnly: true });
+  const { user, shop, role } = await requireShop(db, req, { ownerOnly: true });
   const input = await parseBody(req, shopSettingsSchema);
   if (input.openFrom >= input.openTo) {
     throw new HttpError(400, 'invalid_body', 'Opening time must be before closing time');
   }
-  await db.transaction(async (tx) => {
-    await tx.update(shops).set(input).where(eq(shops.id, shop.id));
-    // Today is left alone (visitors may already be on their way); later days follow the new hours.
-    for (const date of bookableDates().slice(1)) {
-      await applyDaySlots(
-        tx,
-        shop,
-        date,
-        input.openFrom,
-        input.openTo,
-        input.defaultCapacityPerSlot,
-      );
-    }
-    await audit(tx, {
-      actorUserId: user.id,
-      action: 'shop.settings',
-      entity: 'shop',
-      entityId: shop.id,
-      meta: input,
-    });
+  await db.update(shops).set(input).where(eq(shops.id, shop.id));
+  await audit(db, {
+    actorUserId: user.id,
+    action: 'shop.settings',
+    entity: 'shop',
+    entityId: shop.id,
+    meta: input,
   });
   const [fresh] = await db.select().from(shops).where(eq(shops.id, shop.id));
-  return json(await shopContext(db, fresh!, true));
+  return json(await shopContext(db, fresh!, true, role));
 }
 
-/** GET /api/shop/slots?date= */
-export async function shopSlotsGetHandler(req: HttpRequest): Promise<HttpResponseInit> {
-  const db = getDb();
-  const { shop } = await requireShop(db, req);
-  const date = parseQuery(req.query.get('date') ?? istDate(), dateSchema);
-  await ensureSlots(db, shop, date);
-  const rows = await daySlots(db, shop.id, date);
-  return json({ date, dates: bookableDates(), slots: rows.map((r) => slotView(r)) });
-}
+// ---- Product photos ----
 
-/** PUT /api/shop/slots {date, openFrom, openTo, capacity} — keeps booked slots. */
-export async function shopSlotsPutHandler(req: HttpRequest): Promise<HttpResponseInit> {
+/** POST /api/shop/items/{id}/image {contentType, base64} — owner; stored in shop-media. */
+export async function shopItemImageHandler(req: HttpRequest): Promise<HttpResponseInit> {
   const db = getDb();
-  const { user, shop } = await requireShop(db, req, { ownerOnly: true });
-  const input = await parseBody(req, daySlotsSchema);
-  if (input.openFrom >= input.openTo) {
-    throw new HttpError(400, 'invalid_body', 'Opening time must be before closing time');
-  }
-  if (input.date < istDate()) throw new HttpError(400, 'past_date', 'That day is over');
-  await db.transaction(async (tx) => {
-    await applyDaySlots(tx, shop, input.date, input.openFrom, input.openTo, input.capacity);
-    await audit(tx, {
-      actorUserId: user.id,
-      action: 'slots.day',
-      entity: 'shop',
-      entityId: shop.id,
-      meta: input,
-    });
-  });
-  const rows = await daySlots(db, shop.id, input.date);
-  return json({ date: input.date, dates: bookableDates(), slots: rows.map((r) => slotView(r)) });
-}
-
-/** PATCH /api/shop/slots/{id} {capacity} — never below what is already booked. */
-export async function shopSlotCapacityHandler(req: HttpRequest): Promise<HttpResponseInit> {
-  const db = getDb();
-  const { user, shop } = await requireShop(db, req, { ownerOnly: true });
+  const { user, shop } = await requireShop(db, req, { can: 'catalogue' });
   const id = requireUuidParam(req, 'id');
-  const { capacity } = await parseBody(req, slotCapacitySchema);
-  const [row] = await db
-    .update(slots)
-    .set({ capacity: sql`greatest(${capacity}, ${slots.booked})` })
-    .where(and(eq(slots.id, id), eq(slots.shopId, shop.id)))
-    .returning();
-  if (!row) throw new HttpError(404, 'slot_not_found', 'No such slot');
-  await audit(db, {
-    actorUserId: user.id,
-    action: 'slots.capacity',
-    entity: 'slot',
-    entityId: id,
-    meta: { capacity },
-  });
-  return json(slotView(row));
+  const input = await parseBody(req, imageUploadSchema);
+  const data = Buffer.from(input.base64, 'base64');
+  const type = sniffImage(data);
+  if (!type || data.length > ITEM_IMAGE_MAX_BYTES) {
+    throw new HttpError(400, 'bad_image', 'Upload a JPEG, PNG or WebP photo up to 2 MB');
+  }
+  const [item] = await db
+    .select({ id: items.id })
+    .from(items)
+    .where(and(eq(items.id, id), eq(items.shopId, shop.id)));
+  if (!item) throw new HttpError(404, 'item_not_found', 'No such item');
+  const path = itemImagePath(shop.id, randomUUID(), type.split('/')[1]!);
+  await fileStore('shop-media').put(path, data, type);
+  return json(await updateItem(db, shop.id, user.id, id, { imagePath: path }));
 }
 
-// ---- Today's visitors ----
+// ---- Orders: incoming, packing, counter ----
 
-/** GET /api/shop/visits/today?date= — slot-wise list; the screen polls every 10 s. */
-export async function shopTodayHandler(req: HttpRequest): Promise<HttpResponseInit> {
+const VIEWS = {
+  incoming: ['placed'],
+  packing: ['confirmed', 'packing', 'awaiting_customer'],
+  counter: ['packed'],
+  done: ['completed', 'cancelled', 'rejected', 'expired'],
+} as const satisfies Record<string, readonly OrderStatus[]>;
+
+/** GET /api/shop/orders?view=incoming|packing|counter|done — polled every 10 s. */
+export async function shopOrdersHandler(req: HttpRequest): Promise<HttpResponseInit> {
   const db = getDb();
-  const { shop } = await requireShop(db, req);
-  const date = parseQuery(req.query.get('date') ?? istDate(), dateSchema);
-  await ensureSlots(db, shop, date);
-  const slotRows = await daySlots(db, shop.id, date);
-  const visitRows = slotRows.length
-    ? await db
-        .select({ v: visits, s: slots })
-        .from(visits)
-        .innerJoin(slots, eq(slots.id, visits.slotId))
-        .where(
-          inArray(
-            visits.slotId,
-            slotRows.map((s) => s.id),
-          ),
-        )
-        .orderBy(asc(visits.createdAt))
-    : [];
-  const body: ShopToday = {
-    date,
-    slots: slotRows.map((s) => ({
-      ...slotView(s),
-      visits: visitRows.filter((r) => r.s.id === s.id).map((r) => queueVisitView({ ...r, shop })),
-    })),
+  const { shop } = await requireShop(db, req, { can: 'view' });
+  const view = (req.query.get('view') ?? 'incoming') as keyof typeof VIEWS;
+  if (!VIEWS[view]) throw new HttpError(400, 'bad_view', 'Unknown view');
+  return json(await staffOrderSummaries(db, shop.id, VIEWS[view]));
+}
+
+/** GET /api/shop/orders/{id} */
+export async function shopOrderHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const db = getDb();
+  const { shop } = await requireShop(db, req, { can: 'view' });
+  return json(await staffOrderView(db, await shopOrder(db, shop.id, requireUuidParam(req, 'id'))));
+}
+
+/** POST /api/shop/orders/{id}/confirm — within 3 days of the fee payment. */
+export async function shopConfirmHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const db = getDb();
+  const { user, shop } = await requireShop(db, req, { can: 'orders' });
+  return json(await confirmOrder(db, shop.id, user.id, requireUuidParam(req, 'id')));
+}
+
+/** POST /api/shop/orders/{id}/reject {reason} — the customer's fee is refunded. */
+export async function shopRejectHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const db = getDb();
+  const { user, shop } = await requireShop(db, req, { can: 'orders' });
+  const { reason } = await parseBody(req, reasonSchema);
+  return json(await rejectOrder(db, shop.id, user.id, requireUuidParam(req, 'id'), reason));
+}
+
+const packer = (req: HttpRequest) => requireShop(getDb(), req, { can: 'packing' });
+
+/** POST /api/shop/orders/{id}/start-packing */
+export async function shopStartPackingHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const { user, shop } = await packer(req);
+  return json(await startPacking(getDb(), shop.id, user.id, requireUuidParam(req, 'id')));
+}
+
+/** POST /api/shop/orders/{id}/scan {barcode} — one unit per scan. */
+export async function shopScanHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const { user, shop } = await packer(req);
+  const { barcode } = await parseBody(req, packScanSchema);
+  return json(await scanItem(getDb(), shop.id, user.id, requireUuidParam(req, 'id'), barcode));
+}
+
+/** POST /api/shop/orders/{id}/pick {lineId} — items without a barcode only. */
+export async function shopPickHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const { user, shop } = await packer(req);
+  const { lineId } = await parseBody(req, lineRefSchema);
+  return json(await pickByHand(getDb(), shop.id, user.id, requireUuidParam(req, 'id'), lineId));
+}
+
+/** POST /api/shop/orders/{id}/out-of-stock {lineId} — asks the customer. */
+export async function shopOutOfStockHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const { user, shop } = await packer(req);
+  const { lineId } = await parseBody(req, lineRefSchema);
+  return json(await markOutOfStock(getDb(), shop.id, user.id, requireUuidParam(req, 'id'), lineId));
+}
+
+/** POST /api/shop/orders/{id}/alternate {lineId, itemId, qty} — asks the customer. */
+export async function shopAlternateHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const { user, shop } = await packer(req);
+  const input = await parseBody(req, proposeAlternateSchema);
+  return json(
+    await proposeAlternate(getDb(), shop.id, user.id, requireUuidParam(req, 'id'), input),
+  );
+}
+
+/** POST /api/shop/orders/{id}/finish — pack number, total and the sticker QR. */
+export async function shopFinishHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const { user, shop } = await packer(req);
+  return json(await finishPacking(getDb(), shop.id, user.id, requireUuidParam(req, 'id')));
+}
+
+/** POST /api/shop/orders/{id}/sticker — reprint; the old sticker stops matching. */
+export async function shopStickerHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const { user, shop } = await packer(req);
+  return json(await reprintSticker(getDb(), shop.id, user.id, requireUuidParam(req, 'id')));
+}
+
+const cashier = (req: HttpRequest) => requireShop(getDb(), req, { can: 'counter' });
+
+/** POST /api/shop/counter/open {qr} — customer's pickup QR. */
+export async function counterOpenHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const db = getDb();
+  const { user, shop } = await cashier(req);
+  const { qr } = await parseBody(req, qrInputSchema);
+  await rateLimit(db, `counter:${user.id}`, 120, 60);
+  return json(await openByCustomerQr(db, shop, qr));
+}
+
+/** POST /api/shop/counter/{id}/pack {qr} — the pack sticker must match. */
+export async function counterPackHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const { user, shop } = await cashier(req);
+  const { qr } = await parseBody(req, qrInputSchema);
+  return json(await matchPack(getDb(), shop, user.id, requireUuidParam(req, 'id'), qr));
+}
+
+/** POST /api/shop/counter/{id}/upi — start UPI to the merchant's YouPI-PG. No body. */
+export async function counterUpiHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const { user, shop } = await cashier(req);
+  return json(await startUpi(getDb(), shop, user.id, requireUuidParam(req, 'id')));
+}
+
+/** GET /api/shop/counter/{id} — poll; checks YouPI status server-side. */
+export async function counterPollHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const { shop } = await cashier(req);
+  return json(await pollUpi(getDb(), shop, requireUuidParam(req, 'id')));
+}
+
+/** POST /api/shop/counter/{id}/upi-simulated — dev/demo only. */
+export async function counterUpiSimHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const { user, shop } = await cashier(req);
+  return json(await confirmSimulatedUpi(getDb(), shop, user.id, requireUuidParam(req, 'id')));
+}
+
+/** POST /api/shop/counter/{id}/card {approvalCode} */
+export async function counterCardHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const { user, shop } = await cashier(req);
+  const { approvalCode } = await parseBody(req, cardPaymentSchema);
+  return json(await recordCard(getDb(), shop, user.id, requireUuidParam(req, 'id'), approvalCode));
+}
+
+/** POST /api/shop/counter/{id}/cash {receivedPaise} */
+export async function counterCashHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const { user, shop } = await cashier(req);
+  const { receivedPaise } = await parseBody(req, cashPaymentSchema);
+  return json(await recordCash(getDb(), shop, user.id, requireUuidParam(req, 'id'), receivedPaise));
+}
+
+// ---- Counter payment settings (owner; the platform team can also set them) ----
+
+export async function settingsView(db: Db, shop: ShopRow): Promise<MerchantPaymentSettings> {
+  const s = await paymentSettings(db, shop.id);
+  return {
+    youpiBaseUrl: s.youpiBaseUrl,
+    youpiMerchantId: s.youpiMerchantId,
+    hasWebhookSecret: !!s.youpiWebhookSecretEnc,
+    upiVpa: s.upiVpa,
+    acceptsCard: s.acceptsCard,
+    acceptsCash: s.acceptsCash,
+    webhookUrl: `${env.publicOrigin()}/api/payments/youpi/${shop.shortCode}`,
   };
-  return json(body);
 }
 
-async function loadShopVisit(db: Db, shopId: string, codeParam: string | undefined) {
-  const code = visitCodeSchema.parse(codeParam);
-  const [row] = await db
-    .select({ v: visits, s: slots })
-    .from(visits)
-    .innerJoin(slots, eq(slots.id, visits.slotId))
-    .where(eq(visits.code, code));
-  if (!row) throw new HttpError(404, 'visit_not_found', 'No ticket with this code');
-  if (row.v.shopId !== shopId) {
-    throw new HttpError(409, 'wrong_shop', 'This ticket is for a different shop');
-  }
-  return row;
-}
-
-/** POST /api/shop/visits/{code}/serve — booked/arrived → served. Code only, no items. */
-export async function shopServeHandler(req: HttpRequest): Promise<HttpResponseInit> {
-  const db = getDb();
-  const { user, shop } = await requireShop(db, req);
-  const row = await loadShopVisit(db, shop.id, req.params.code);
-  if (row.v.status === 'served') return json(queueVisitView({ ...row, shop })); // idempotent (offline replay)
-  if (row.v.status !== 'booked' && row.v.status !== 'arrived') {
-    throw new HttpError(409, 'not_servable', `This ticket is ${row.v.status.replace('_', '-')}`);
-  }
-  const [v] = await db
-    .update(visits)
-    .set({ status: 'served', servedAt: sql`now()` })
-    .where(eq(visits.id, row.v.id))
-    .returning();
+export async function saveSettings(
+  db: Db,
+  shop: ShopRow,
+  actorId: string,
+  input: z.infer<typeof merchantPaymentSettingsSchema>,
+) {
+  const { youpiWebhookSecret, ...rest } = input;
+  const values = {
+    ...rest,
+    ...(youpiWebhookSecret ? { youpiWebhookSecretEnc: encryptSecret(youpiWebhookSecret) } : {}),
+  };
+  await db
+    .insert(merchantPaymentSettings)
+    .values({ shopId: shop.id, ...values })
+    .onConflictDoUpdate({ target: merchantPaymentSettings.shopId, set: values });
   await audit(db, {
-    actorUserId: user.id,
-    action: 'visit.serve',
-    entity: 'visit',
-    entityId: row.v.id,
+    actorUserId: actorId,
+    action: 'shop.payment_settings',
+    entity: 'shop',
+    entityId: shop.id,
+    meta: { ...rest, webhookSecretChanged: !!youpiWebhookSecret },
   });
-  return json(queueVisitView({ v: v!, s: row.s, shop }));
+  return settingsView(db, shop);
 }
 
-/** POST /api/shop/visits/{code}/no-show — frees the place and adds a strike. */
-export async function shopNoShowHandler(req: HttpRequest): Promise<HttpResponseInit> {
+/** GET /api/shop/payment-settings */
+export async function paymentSettingsGetHandler(req: HttpRequest): Promise<HttpResponseInit> {
   const db = getDb();
-  const { user, shop } = await requireShop(db, req);
-  const row = await loadShopVisit(db, shop.id, req.params.code);
-  if (row.v.status !== 'booked' && row.v.status !== 'arrived') {
-    throw new HttpError(409, 'not_open', `This ticket is ${row.v.status.replace('_', '-')}`);
-  }
-  const updated = await db.transaction(async (tx) => {
-    const [v] = await tx
-      .update(visits)
-      .set({ status: 'no_show', noShowAt: sql`now()` })
-      .where(and(eq(visits.id, row.v.id), inArray(visits.status, ['booked', 'arrived'])))
-      .returning();
-    if (!v) throw new HttpError(409, 'not_open', 'This ticket changed, refresh');
-    await releaseSlot(tx, row.v.slotId);
-    await addStrike(tx, row.v.userId);
-    await audit(tx, {
-      actorUserId: user.id,
-      action: 'visit.no_show',
-      entity: 'visit',
-      entityId: row.v.id,
-    });
-    return v;
-  });
-  return json(queueVisitView({ v: updated, s: row.s, shop }));
+  const { shop } = await requireShop(db, req, { ownerOnly: true });
+  return json(await settingsView(db, shop));
 }
 
-/** GET /api/shop/stats?from=&to= — footfall per day. */
+/** PUT /api/shop/payment-settings */
+export async function paymentSettingsPutHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const db = getDb();
+  const { user, shop } = await requireShop(db, req, { ownerOnly: true });
+  const input = await parseBody(req, merchantPaymentSettingsSchema);
+  return json(await saveSettings(db, shop, user.id, input));
+}
+
+/** GET /api/shop/stats?from=&to= — the merchant's own orders and sales per day. */
 export async function shopStatsHandler(req: HttpRequest): Promise<HttpResponseInit> {
   const db = getDb();
   const { shop } = await requireShop(db, req, { ownerOnly: true });
-  const to = parseQuery(req.query.get('to') ?? addDays(istDate(), 7), dateSchema);
+  const to = parseQuery(req.query.get('to') ?? istDate(), dateSchema);
   const from = parseQuery(req.query.get('from') ?? addDays(istDate(), -14), dateSchema);
   const rows = await footfall(db, [shop.id], from, to);
-  return json({
-    from,
-    to,
-    rows: rows.map(({ shopId: _s, medianArriveToServeMin: _m, ...r }) => r),
-  });
+  return json({ from, to, rows: rows.map(({ shopId: _s, ...r }) => r) });
 }
 
 // ---- Licence ----
@@ -431,12 +529,27 @@ http('shopItemCreate', ['POST'], 'shop/items/new', shopItemCreateHandler);
 http('shopItemPatch', ['PATCH'], 'shop/items/{id}', shopItemPatchHandler);
 http('shopItemSoldOut', ['PATCH'], 'shop/items/{id}/sold-out', shopItemSoldOutHandler);
 http('shopSettings', ['PUT'], 'shop/settings', shopSettingsHandler);
-http('shopSlotsGet', ['GET'], 'shop/slots', shopSlotsGetHandler);
-http('shopSlotsPut', ['PUT'], 'shop/slots/day', shopSlotsPutHandler);
-http('shopSlotCapacity', ['PATCH'], 'shop/slots/{id}', shopSlotCapacityHandler);
-http('shopToday', ['GET'], 'shop/visits/today', shopTodayHandler);
-http('shopServe', ['POST'], 'shop/visits/{code}/serve', shopServeHandler);
-http('shopNoShow', ['POST'], 'shop/visits/{code}/no-show', shopNoShowHandler);
+http('shopItemImage', ['POST'], 'shop/items/{id}/image', shopItemImageHandler);
+http('shopOrders', ['GET'], 'shop/orders', shopOrdersHandler);
+http('shopOrder', ['GET'], 'shop/orders/{id}', shopOrderHandler);
+http('shopConfirm', ['POST'], 'shop/orders/{id}/confirm', shopConfirmHandler);
+http('shopReject', ['POST'], 'shop/orders/{id}/reject', shopRejectHandler);
+http('shopStartPacking', ['POST'], 'shop/orders/{id}/start-packing', shopStartPackingHandler);
+http('shopScan', ['POST'], 'shop/orders/{id}/scan', shopScanHandler);
+http('shopPick', ['POST'], 'shop/orders/{id}/pick', shopPickHandler);
+http('shopOutOfStock', ['POST'], 'shop/orders/{id}/out-of-stock', shopOutOfStockHandler);
+http('shopAlternate', ['POST'], 'shop/orders/{id}/alternate', shopAlternateHandler);
+http('shopFinish', ['POST'], 'shop/orders/{id}/finish', shopFinishHandler);
+http('shopSticker', ['POST'], 'shop/orders/{id}/sticker', shopStickerHandler);
+http('counterOpen', ['POST'], 'shop/counter/open', counterOpenHandler);
+http('counterPoll', ['GET'], 'shop/counter/{id}', counterPollHandler);
+http('counterPack', ['POST'], 'shop/counter/{id}/pack', counterPackHandler);
+http('counterUpi', ['POST'], 'shop/counter/{id}/upi', counterUpiHandler);
+http('counterUpiSim', ['POST'], 'shop/counter/{id}/upi-simulated', counterUpiSimHandler);
+http('counterCard', ['POST'], 'shop/counter/{id}/card', counterCardHandler);
+http('counterCash', ['POST'], 'shop/counter/{id}/cash', counterCashHandler);
+http('shopPaymentSettingsGet', ['GET'], 'shop/payment-settings', paymentSettingsGetHandler);
+http('shopPaymentSettingsPut', ['PUT'], 'shop/payment-settings', paymentSettingsPutHandler);
 http('shopStats', ['GET'], 'shop/stats', shopStatsHandler);
 http('shopLicenceList', ['GET'], 'shop/licence', shopLicenceListHandler);
 http('shopLicenceSubmit', ['POST'], 'shop/licence/new', shopLicenceSubmitHandler);

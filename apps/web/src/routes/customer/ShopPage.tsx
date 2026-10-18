@@ -15,7 +15,7 @@ import {
   Spinner,
   cx,
 } from '../../components/ui';
-import { categoryName, dayIST, itemName, slotRange } from '../../lib/format';
+import { categoryName, dayIST, itemName } from '../../lib/format';
 import { usePlan } from '../../lib/planList';
 import { useShop, useShopItems } from '../../lib/queries';
 import { usePlanDetails } from './usePlanDetails';
@@ -96,12 +96,9 @@ export function ShopPage() {
               date: dayIST(s.licence.validTo),
             })}
           </span>
-          {s.nextFreeSlot && (
-            <span className="rounded-full bg-gold/20 px-3 py-1.5 text-gold-light ring-1 ring-gold/40">
-              {t('home.nextSlot')}: {dayIST(s.nextFreeSlot.startsAt)},{' '}
-              {slotRange(s.nextFreeSlot.startsAt, s.nextFreeSlot.endsAt)}
-            </span>
-          )}
+          <span className="rounded-full bg-gold/20 px-3 py-1.5 text-gold-light ring-1 ring-gold/40">
+            ⚡ {t('home.expressPickup')}
+          </span>
           {mapUrl && (
             <a
               href={mapUrl}
@@ -178,25 +175,52 @@ export function ShopPage() {
                 qty > 0 && 'ring-2 ring-gold/60',
               )}
             >
-              <div className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-sand to-gold-light/40 font-display text-lg font-semibold text-gold-deep">
-                #{item.itemNo}
-              </div>
+              {item.imageUrl ? (
+                <img
+                  src={item.imageUrl}
+                  alt=""
+                  loading="lazy"
+                  className="h-16 w-16 shrink-0 rounded-2xl object-cover ring-1 ring-line"
+                />
+              ) : (
+                <div className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-sand to-gold-light/40 font-display text-lg font-semibold text-gold-deep">
+                  #{item.itemNo}
+                </div>
+              )}
               <div className="min-w-0 flex-1">
                 <p className="font-semibold leading-snug">{name}</p>
                 <p className="text-sm text-muted">{item.packDesc}</p>
                 <div className="mt-1.5 flex flex-wrap items-center gap-2">
                   <span className="font-display text-lg font-semibold">
-                    {formatPaise(item.pricePaise)}
+                    {formatPaise(item.effectivePricePaise)}
                   </span>
+                  {item.effectivePricePaise < item.pricePaise && (
+                    <>
+                      <span className="text-sm text-muted line-through">
+                        {formatPaise(item.pricePaise)}
+                      </span>
+                      <Badge tone="saffron">{t('shopPage.offer')}</Badge>
+                    </>
+                  )}
                   <GreenBadge cert={item.greenCert} />
                   {item.isSoldOut && <Badge tone="muted">{t('shopPage.soldOut')}</Badge>}
+                  {!item.isSoldOut && item.stockQty != null && item.stockQty <= 5 && (
+                    <Badge tone="danger">{t('shopPage.onlyLeft', { count: item.stockQty })}</Badge>
+                  )}
                 </div>
               </div>
               <QtyStepper
                 qty={qty}
                 name={name}
                 disabled={item.isSoldOut}
-                onChange={(n) => setFull(!plan.setQty(item.itemNo, n))}
+                onChange={(n) =>
+                  setFull(
+                    !plan.setQty(
+                      item.itemNo,
+                      item.stockQty != null ? Math.min(n, item.stockQty) : n,
+                    ),
+                  )
+                }
               />
             </Card>
           );

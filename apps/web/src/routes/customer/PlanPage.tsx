@@ -1,24 +1,49 @@
 import { useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { encodePlan, formatPaise } from '@pataka/shared';
+import { PLATFORM_FEE_PAISE, encodePlan, formatPaise } from '@pataka/shared';
+import { useMe } from '../../auth/useAuth';
+import { ErrorText } from '../../components/ErrorText';
 import { QrCode } from '../../components/QrCode';
+import { SafetyNotice } from '../../components/SafetyNotice';
 import { QtyStepper } from '../../components/QtyStepper';
 import { Badge, Button, ButtonLink, Card, EmptyState, Notice, Spinner } from '../../components/ui';
 import { itemName } from '../../lib/format';
 import { usePlan } from '../../lib/planList';
-import { useShop, useShopItems } from '../../lib/queries';
+import { useOrderingInfo, usePlaceOrder, useShop, useShopItems } from '../../lib/queries';
 import { usePlanDetails } from './usePlanDetails';
 
-/** SPEC §9 screen 3. The list stays on this phone; only the QR carries it to the counter. */
+/**
+ * Review the order. Placing it sends item ids and quantities only — the server
+ * prices it (G11) — then opens the ₹30 platform-fee payment.
+ */
 export function PlanPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const code = (useParams().code ?? '').toUpperCase();
   const shop = useShop(code);
   const items = useShopItems(code);
   const plan = usePlan(code, items.data?.priceVersion);
   const { rows, total, unavailable } = usePlanDetails(plan.lines, items.data);
   const [walkIn, setWalkIn] = useState(false);
+  const { data: me } = useMe();
+  const ordering = useOrderingInfo();
+  const place = usePlaceOrder();
+  const fee = formatPaise(ordering.data?.feePaise ?? PLATFORM_FEE_PAISE);
+
+  const placeOrder = () => {
+    const lines = rows.filter((r) => r.item).map((r) => ({ itemId: r.item!.id, qty: r.qty }));
+    place.mutate(
+      { shopCode: code, lines },
+      {
+        onSuccess: (order) => {
+          plan.clear();
+          if (order.fee.checkout) navigate(order.fee.checkout.url);
+          else navigate(`/orders/${order.id}`);
+        },
+      },
+    );
+  };
 
   if (items.isPending) return <Spinner label={t('common.loading')} />;
   if (!plan.lines.length) {
@@ -52,7 +77,8 @@ export function PlanPage() {
                   {r.item ? itemName(r.item) : t('plan.unknownItem', { no: r.itemNo })}
                 </p>
                 <p className="text-sm text-muted">
-                  {r.item && `${r.item.packDesc ?? ''} · ${formatPaise(r.item.pricePaise)}`}
+                  {r.item &&
+                    `${r.item.packDesc ?? ''} · ${formatPaise(r.item.effectivePricePaise)}`}
                 </p>
                 {r.item?.isSoldOut && (
                   <Badge tone="danger" className="mt-1">
@@ -94,9 +120,28 @@ export function PlanPage() {
             </Notice>
           )}
           <div className="mt-6 grid gap-3">
-            <ButtonLink to={`/s/${code}/book`} size="lg">
-              {t('plan.bookSlot')}
-            </ButtonLink>
+            {ordering.data?.enabled === false ? (
+              <Notice>{t('plan.orderingOff')}</Notice>
+            ) : !me ? (
+              <ButtonLink to={`/login?next=${encodeURIComponent(`/s/${code}/plan`)}`} size="lg">
+                {t('plan.signInToOrder')}
+              </ButtonLink>
+            ) : (
+              <>
+                <Button
+                  size="lg"
+                  onClick={placeOrder}
+                  disabled={place.isPending || unavailable > 0 || !ordering.data}
+                >
+                  {place.isPending ? t('plan.placing') : t('plan.placeOrder', { fee })}
+                </Button>
+                {unavailable > 0 && (
+                  <p className="text-xs text-danger">{t('plan.removeUnavailable')}</p>
+                )}
+                <p className="text-xs text-muted">{t('plan.feeNote', { fee })}</p>
+                <ErrorText error={place.error} />
+              </>
+            )}
             <Button variant="secondary" onClick={() => setWalkIn((v) => !v)}>
               {walkIn ? t('plan.hideQr') : t('plan.walkInQr')}
             </Button>
@@ -117,6 +162,9 @@ export function PlanPage() {
               label={t('plan.walkInTitle')}
               className="mx-auto w-64 [&>svg]:h-auto [&>svg]:w-full"
             />
+            <div className="mt-4 text-left">
+              <SafetyNotice />
+            </div>
           </Card>
         )}
       </aside>

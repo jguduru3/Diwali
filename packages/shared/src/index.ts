@@ -2,6 +2,7 @@ export * from './constants';
 export * from './copy';
 export * from './domain';
 export * from './money';
+export * from './order';
 export * from './phone';
 export * from './qr';
 export * from './roles';

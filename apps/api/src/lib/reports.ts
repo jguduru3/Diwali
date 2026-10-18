@@ -1,43 +1,39 @@
-import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
+import { and, gte, inArray, lt, sql } from 'drizzle-orm';
 import { istDayRange, type FootfallRow, type Licence } from '@pataka/shared';
 import type { Db } from '../db/client';
-import { dailyShopStats, shopLicences, slots, visits } from '../db/schema';
+import { dailyShopStats, orders, shopLicences } from '../db/schema';
 import type { ShopRow } from './access';
 
-/** Footfall per shop and day (no money — G4). */
-
+/**
+ * The merchant's own daily numbers: orders placed (fee paid), completed,
+ * cancelled, and their sales. Platform fees are not included (G4).
+ */
 export async function footfall(
   db: Db,
   shopIds: string[],
   from: string,
   to: string,
-): Promise<(FootfallRow & { shopId: string; medianArriveToServeMin: number | null })[]> {
+): Promise<(FootfallRow & { shopId: string })[]> {
   if (!shopIds.length) return [];
   const range = { from: istDayRange(from).from, to: istDayRange(to).to };
   const live = await db
     .select({
-      shopId: visits.shopId,
-      day: sql<string>`to_char((${slots.startsAt} at time zone 'Asia/Kolkata')::date, 'YYYY-MM-DD')`,
-      booked: sql<number>`count(*)::int`,
-      arrived: sql<number>`count(*) filter (where ${visits.arrivedAt} is not null)::int`,
-      served: sql<number>`count(*) filter (where ${visits.status} = 'served')::int`,
-      noShow: sql<number>`count(*) filter (where ${visits.status} = 'no_show')::int`,
-      cancelled: sql<number>`count(*) filter (where ${visits.status} = 'cancelled')::int`,
-      median: sql<
-        number | null
-      >`percentile_cont(0.5) within group (order by extract(epoch from ${visits.servedAt} - ${visits.arrivedAt}) / 60)
-        filter (where ${visits.servedAt} is not null and ${visits.arrivedAt} is not null)`,
+      shopId: orders.shopId,
+      day: sql<string>`to_char((${orders.feePaidAt} at time zone 'Asia/Kolkata')::date, 'YYYY-MM-DD')`,
+      orders: sql<number>`count(*)::int`,
+      completed: sql<number>`count(*) filter (where ${orders.status} = 'completed')::int`,
+      cancelled: sql<number>`count(*) filter (where ${orders.status} in ('cancelled','rejected','expired'))::int`,
+      salesPaise: sql<number>`coalesce(sum(${orders.finalTotalPaise}) filter (where ${orders.status} = 'completed'), 0)::int`,
     })
-    .from(visits)
-    .innerJoin(slots, eq(slots.id, visits.slotId))
+    .from(orders)
     .where(
       and(
-        inArray(visits.shopId, shopIds),
-        gte(slots.startsAt, range.from),
-        lt(slots.startsAt, range.to),
+        inArray(orders.shopId, shopIds),
+        gte(orders.feePaidAt, range.from),
+        lt(orders.feePaidAt, range.to),
       ),
     )
-    .groupBy(visits.shopId, sql`2`);
+    .groupBy(orders.shopId, sql`2`);
   // Stored rows survive the end-of-season purge; live rows win where both exist.
   const stored = await db
     .select()
@@ -49,34 +45,18 @@ export async function footfall(
         sql`${dailyShopStats.day} <= ${to}`,
       ),
     );
-  const out = new Map<
-    string,
-    FootfallRow & { shopId: string; medianArriveToServeMin: number | null }
-  >();
+  const out = new Map<string, FootfallRow & { shopId: string }>();
   for (const s of stored) {
     out.set(`${s.shopId}:${s.day}`, {
       shopId: s.shopId,
       day: s.day,
-      booked: s.booked,
-      arrived: s.arrived,
-      served: s.served,
-      noShow: s.noShow,
+      orders: s.orders,
+      completed: s.completed,
       cancelled: s.cancelled,
-      medianArriveToServeMin: null,
+      salesPaise: s.salesPaise,
     });
   }
-  for (const l of live) {
-    out.set(`${l.shopId}:${l.day}`, {
-      shopId: l.shopId,
-      day: l.day,
-      booked: l.booked,
-      arrived: l.arrived,
-      served: l.served,
-      noShow: l.noShow,
-      cancelled: l.cancelled,
-      medianArriveToServeMin: l.median == null ? null : Math.round(Number(l.median) * 10) / 10,
-    });
-  }
+  for (const l of live) out.set(`${l.shopId}:${l.day}`, l);
   return [...out.values()].sort((a, b) => a.day.localeCompare(b.day));
 }
 

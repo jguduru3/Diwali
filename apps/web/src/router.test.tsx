@@ -17,10 +17,9 @@ const shopContext = {
   visible: true,
   openFrom: '10:00',
   openTo: '22:00',
-  slotMinutes: 30,
-  defaultCapacityPerSlot: 10,
   priceVersion: 1,
   canEdit: true,
+  role: 'shop_owner',
   cluster: null,
 };
 
@@ -29,7 +28,7 @@ describe('public routes', () => {
     mockApi(null);
     renderAt('/');
     expect(await screen.findByRole('link', { name: 'Sri Lakshmi Crackers' })).toBeInTheDocument();
-    expect(screen.getAllByText('Festive Diwali').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Diwali Express Pickup').length).toBeGreaterThan(0);
     expect(screen.getByRole('link', { name: 'Sign in' })).toBeInTheDocument();
   });
 
@@ -43,7 +42,9 @@ describe('public routes', () => {
     mockApi(null);
     renderAt('/about');
     fireEvent.click(await screen.findByRole('button', { name: 'Change language' }));
-    expect(await screen.findByText('ఫెస్టివ్ దీపావళి ఎలా పనిచేస్తుంది')).toBeInTheDocument();
+    expect(
+      await screen.findByText('దీపావళి ఎక్స్‌ప్రెస్ పికప్ ఎలా పనిచేస్తుంది'),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'భాష మార్చండి' }));
   });
 
@@ -55,7 +56,7 @@ describe('public routes', () => {
 });
 
 describe('role-based access (demo mode off)', () => {
-  it.each(['/shop', '/gate', '/admin', '/account', '/ticket'])(
+  it.each(['/shop', '/gate', '/admin', '/account', '/orders'])(
     'signed-out visitors to %s are sent to sign in, keeping the return path',
     async (path) => {
       mockApi(null);
@@ -71,36 +72,61 @@ describe('role-based access (demo mode off)', () => {
     renderAt('/admin');
     expect(await screen.findByText('No access')).toBeInTheDocument();
     expect(within(areasNav()).queryByText('Admin')).not.toBeInTheDocument();
-    expect(within(areasNav()).queryByText('Shop counter')).not.toBeInTheDocument();
+    expect(within(areasNav()).queryByText('Merchant')).not.toBeInTheDocument();
   });
 
-  it('vendors see their shop counter but not admin', async () => {
+  it('merchants see their shop area but not admin', async () => {
     mockApi(account('shop_owner'), {
       extra: {
         '/shop/context': shopContext,
-        '/shop/visits/today': { date: '2026-11-07', slots: [] },
       },
     });
     renderAt('/shop');
     expect(
       await screen.findByRole('heading', { name: 'Sri Lakshmi Crackers' }),
     ).toBeInTheDocument();
-    expect(within(areasNav()).getByText('Shop counter')).toBeInTheDocument();
+    expect(within(areasNav()).getByText('Merchant')).toBeInTheDocument();
     expect(within(areasNav()).queryByText('Admin')).not.toBeInTheDocument();
   });
 
-  it('counter staff do not see owner-only tabs', async () => {
+  it('shop staff do not see owner-only tabs', async () => {
     mockApi(account('shop_staff'), {
-      extra: {
-        '/shop/context': { ...shopContext, canEdit: false },
-        '/shop/visits/today': { date: '2026-11-07', slots: [] },
-      },
+      extra: { '/shop/context': { ...shopContext, canEdit: false, role: 'shop_staff' } },
     });
     renderAt('/shop');
     const tabs = await screen.findByRole('navigation', { name: 'Shop sections' });
-    expect(within(tabs).getByText('Scan list')).toBeInTheDocument();
+    expect(await within(tabs).findByText('Orders')).toBeInTheDocument();
+    expect(within(tabs).getByText('Express Pickup')).toBeInTheDocument();
     expect(within(tabs).queryByText('Licence')).not.toBeInTheDocument();
-    expect(within(tabs).queryByText('Slots')).not.toBeInTheDocument();
+    expect(within(tabs).queryByText('Payments')).not.toBeInTheDocument();
+  });
+
+  it('packers see packing and products only, and land on packing', async () => {
+    mockApi(account('shop_packer'), {
+      extra: { '/shop/context': { ...shopContext, canEdit: false, role: 'shop_packer' } },
+    });
+    const { state } = renderAt('/shop');
+    const tabs = await screen.findByRole('navigation', { name: 'Shop sections' });
+    expect(await within(tabs).findByText('Packing')).toBeInTheDocument();
+    expect(within(tabs).getByText('Products')).toBeInTheDocument();
+    expect(within(tabs).queryByText('Orders')).not.toBeInTheDocument();
+    expect(within(tabs).queryByText('Express Pickup')).not.toBeInTheDocument();
+    await vi.waitFor(() => expect(state.location.pathname).toBe('/shop/packing'));
+  });
+
+  it('cashiers see only the Express Pickup counter', async () => {
+    mockApi(account('shop_cashier'), {
+      extra: { '/shop/context': { ...shopContext, canEdit: false, role: 'shop_cashier' } },
+    });
+    const { state } = renderAt('/shop');
+    const tabs = await screen.findByRole('navigation', { name: 'Shop sections' });
+    await within(tabs).findByRole('link');
+    expect(
+      within(tabs)
+        .getAllByRole('link')
+        .map((l) => l.textContent),
+    ).toEqual(['Express Pickup']);
+    await vi.waitFor(() => expect(state.location.pathname).toBe('/shop/counter'));
   });
 
   it('vendors are refused the admin area', async () => {
@@ -113,7 +139,7 @@ describe('role-based access (demo mode off)', () => {
     mockApi(account('admin'));
     renderAt('/admin');
     expect(await screen.findByText('Admin console')).toBeInTheDocument();
-    for (const label of ['Shop counter', 'Gate', 'Admin']) {
+    for (const label of ['Merchant', 'Gate', 'Admin']) {
       expect(within(areasNav()).getByText(label)).toBeInTheDocument();
     }
   });

@@ -1,7 +1,20 @@
 // Admin console. Routes live under /api/console because the Functions host
 // reserves /api/admin for itself.
 import type { HttpRequest, HttpResponseInit } from '@azure/functions';
-import { and, asc, desc, eq, gt, inArray, isNotNull, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNotNull,
+  lt,
+  sql,
+  type AnyColumn,
+  type SQL,
+} from 'drizzle-orm';
 import {
   addDays,
   categoryInputSchema,
@@ -10,20 +23,31 @@ import {
   clusterPatchSchema,
   dateSchema,
   istDate,
+  istDayRange,
   licenceDecisionSchema,
   licenceStatusSchema,
+  merchantPaymentSettingsSchema,
+  normalizeIndianPhone,
+  orderStatusSchema,
+  reasonSchema,
   shopInputSchema,
   shopPatchSchema,
+  staffPhoneMask,
   type AdminCluster,
+  type AdminOrder,
   type AdminShop,
   type BlockedUser,
+  type Metrics,
   type MetricsRow,
 } from '@pataka/shared';
 import { getDb, type Db } from '../db/client';
 import {
   categories,
   clusters,
+  feePayments,
+  feeRefunds,
   items,
+  orders,
   shopLicences,
   shopPriceVersions,
   shops,
@@ -36,9 +60,11 @@ import { requireRole } from '../lib/auth';
 import { categoryView } from '../lib/catalogue';
 import { HttpError } from '../lib/errors';
 import { http, json, parseBody, parseQuery } from '../lib/http';
+import { customerOrderView, refundFee } from '../lib/orders';
+import { clusterView } from '../lib/places';
+import { licenceView } from '../lib/reports';
 import { fileStore } from '../lib/storage';
-import { clusterView } from '../lib/visits';
-import { footfall, licenceView } from '../lib/reports';
+import { saveSettings, settingsView } from './shop';
 
 const admin = (db: Db, req: HttpRequest) => requireRole(db, req, ['admin']);
 
@@ -54,7 +80,6 @@ async function listClusters(db: Db): Promise<AdminCluster[]> {
     .orderBy(asc(clusters.name));
   return rows.map(({ c, shopCount }) => ({
     ...clusterView(c)!,
-    bayCount: c.bayCount,
     isActive: c.isActive,
     shopCount,
   }));
@@ -142,7 +167,6 @@ async function listShops(db: Db, onlyId?: string): Promise<AdminShop[]> {
       clusterName,
       openFrom: s.openFrom?.slice(0, 5) ?? null,
       openTo: s.openTo?.slice(0, 5) ?? null,
-      defaultCapacityPerSlot: s.defaultCapacityPerSlot,
       isLive: s.isLive,
       visible,
       licenceStatus: best?.status ?? null,
@@ -337,11 +361,10 @@ export async function blockedUsersHandler(req: HttpRequest): Promise<HttpRespons
     .select()
     .from(users)
     .where(and(isNotNull(users.blockedUntil), gt(users.blockedUntil, sql`now()`)))
-    .orderBy(desc(users.noShowStrikes));
+    .orderBy(desc(users.blockedUntil));
   const body: BlockedUser[] = rows.map((u) => ({
     userId: u.id,
     phone: u.phoneE164,
-    noShowStrikes: u.noShowStrikes,
     blockedUntil: u.blockedUntil?.toISOString() ?? null,
   }));
   return json(body);
@@ -353,7 +376,7 @@ export async function unblockHandler(req: HttpRequest): Promise<HttpResponseInit
   const id = requireUuidParam(req, 'id');
   const [row] = await db
     .update(users)
-    .set({ blockedUntil: null, noShowStrikes: 0 })
+    .set({ blockedUntil: null })
     .where(eq(users.id, id))
     .returning({ id: users.id });
   if (!row) throw new HttpError(404, 'user_not_found', 'No such user');
@@ -361,43 +384,171 @@ export async function unblockHandler(req: HttpRequest): Promise<HttpResponseInit
   return json({ ok: true });
 }
 
+// ---- Orders and platform fees ----
+
+/** GET /api/console/orders?q=&status= — q is an order code, shop code or full phone number. */
+export async function ordersListHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const db = getDb();
+  await admin(db, req);
+  const q = req.query.get('q')?.trim() ?? '';
+  const status = req.query.get('status');
+  const filters: SQL[] = [];
+  if (q) {
+    const phone = normalizeIndianPhone(q);
+    const code = q.toUpperCase().replace(/[\s-]/g, '');
+    filters.push(
+      phone
+        ? eq(users.phoneE164, phone)
+        : sql`(${orders.code} = ${code} or ${shops.shortCode} = ${code})`,
+    );
+  }
+  if (status) filters.push(eq(orders.status, orderStatusSchema.parse(status)));
+  const rows = await db
+    .select({ o: orders, shop: shops, phone: users.phoneE164 })
+    .from(orders)
+    .innerJoin(shops, eq(shops.id, orders.shopId))
+    .innerJoin(users, eq(users.id, orders.userId))
+    .where(filters.length ? and(...filters) : undefined)
+    .orderBy(desc(orders.createdAt))
+    .limit(100);
+  const body: AdminOrder[] = [];
+  for (const r of rows) {
+    const view = await customerOrderView(db, r.o);
+    body.push({
+      id: r.o.id,
+      code: view.code,
+      status: r.o.status,
+      shopCode: r.shop.shortCode,
+      shopName: r.shop.name,
+      customer: staffPhoneMask(r.phone),
+      placedAt: view.placedAt,
+      confirmBy: view.confirmBy,
+      finalTotalPaise: r.o.finalTotalPaise,
+      fee: { amountPaise: view.fee.amountPaise, status: view.fee.status },
+    });
+  }
+  return json(body);
+}
+
+/** POST /api/console/orders/{id}/refund-fee {reason} — goodwill or retry after a failed refund. */
+export async function orderRefundFeeHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const db = getDb();
+  const user = await admin(db, req);
+  const id = requireUuidParam(req, 'id');
+  const { reason } = await parseBody(req, reasonSchema);
+  const refund = await refundFee(db, id, user.id, `Admin: ${reason}`);
+  if (!refund) throw new HttpError(409, 'nothing_to_refund', 'No paid fee on this order');
+  return json({ ok: true });
+}
+
+/** GET/PUT /api/console/shops/{id}/payment-settings — the team sets up YouPI-PG at onboarding. */
+export async function shopPaymentSettingsHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const db = getDb();
+  const user = await admin(db, req);
+  const id = requireUuidParam(req, 'id');
+  const [shop] = await db.select().from(shops).where(eq(shops.id, id));
+  if (!shop) throw new HttpError(404, 'shop_not_found', 'No such shop');
+  if (req.method === 'GET') return json(await settingsView(db, shop));
+  const input = await parseBody(req, merchantPaymentSettingsSchema);
+  return json(await saveSettings(db, shop, user.id, input));
+}
+
 // ---- Metrics ----
 
-/** GET /api/console/metrics?from=&to= — per shop/day footfall, no-show rate, arrive→serve median. */
+/**
+ * GET /api/console/metrics?from=&to= — orders, platform fees and refunds, and
+ * merchants' sales (for reconciliation only; no commission — G4).
+ */
 export async function metricsHandler(req: HttpRequest): Promise<HttpResponseInit> {
   const db = getDb();
   await admin(db, req);
-  const to = parseQuery(req.query.get('to') ?? addDays(istDate(), 7), dateSchema);
-  const from = parseQuery(req.query.get('from') ?? addDays(istDate(), -7), dateSchema);
-  const allShops = await db
-    .select({ id: shops.id, code: shops.shortCode, name: shops.name })
-    .from(shops);
-  const rows = await footfall(
-    db,
-    allShops.map((s) => s.id),
-    from,
-    to,
-  );
-  const body: MetricsRow[] = rows.map((r) => {
-    const s = allShops.find((x) => x.id === r.shopId)!;
-    const closed = r.served + r.noShow;
+  const to = parseQuery(req.query.get('to') ?? istDate(), dateSchema);
+  const from = parseQuery(req.query.get('from') ?? addDays(istDate(), -14), dateSchema);
+  const range = { from: istDayRange(from).from, to: istDayRange(to).to };
+  const day = (col: AnyColumn) =>
+    sql<string>`to_char((${col} at time zone 'Asia/Kolkata')::date, 'YYYY-MM-DD')`;
+
+  const placed = await db
+    .select({
+      day: day(orders.feePaidAt),
+      n: sql<number>`count(*)::int`,
+      completed: sql<number>`count(*) filter (where ${orders.status} = 'completed')::int`,
+      cancelled: sql<number>`count(*) filter (where ${orders.status} in ('cancelled','rejected','expired'))::int`,
+      sales: sql<number>`coalesce(sum(${orders.finalTotalPaise}) filter (where ${orders.status} = 'completed'), 0)::int`,
+    })
+    .from(orders)
+    .where(and(gte(orders.feePaidAt, range.from), lt(orders.feePaidAt, range.to)))
+    .groupBy(sql`1`);
+  const fees = await db
+    .select({
+      day: day(feePayments.capturedAt),
+      paise: sql<number>`coalesce(sum(${feePayments.amountPaise}), 0)::int`,
+    })
+    .from(feePayments)
+    .where(
+      and(
+        eq(feePayments.status, 'captured'),
+        gte(feePayments.capturedAt, range.from),
+        lt(feePayments.capturedAt, range.to),
+      ),
+    )
+    .groupBy(sql`1`);
+  const refunded = await db
+    .select({
+      day: day(feeRefunds.processedAt),
+      paise: sql<number>`coalesce(sum(${feeRefunds.amountPaise}), 0)::int`,
+    })
+    .from(feeRefunds)
+    .where(
+      and(
+        eq(feeRefunds.status, 'processed'),
+        gte(feeRefunds.processedAt, range.from),
+        lt(feeRefunds.processedAt, range.to),
+      ),
+    )
+    .groupBy(sql`1`);
+
+  const days = new Set([...placed, ...fees, ...refunded].map((r) => r.day));
+  const rows: MetricsRow[] = [...days].sort().map((d) => {
+    const p = placed.find((r) => r.day === d);
     return {
-      shopCode: s.code,
-      shopName: s.name,
-      day: r.day,
-      booked: r.booked,
-      arrived: r.arrived,
-      served: r.served,
-      noShow: r.noShow,
-      cancelled: r.cancelled,
-      noShowRate: closed ? Math.round((r.noShow / closed) * 1000) / 10 : null,
-      medianArriveToServeMin: r.medianArriveToServeMin,
+      day: d,
+      ordersPlaced: p?.n ?? 0,
+      completed: p?.completed ?? 0,
+      cancelled: p?.cancelled ?? 0,
+      feesPaise: fees.find((r) => r.day === d)?.paise ?? 0,
+      refundsPaise: refunded.find((r) => r.day === d)?.paise ?? 0,
+      salesPaise: p?.sales ?? 0,
     };
   });
+  const sum = (k: keyof MetricsRow) => rows.reduce((n, r) => n + (r[k] as number), 0);
+  const [{ waiting } = { waiting: 0 }] = await db
+    .select({ waiting: sql<number>`count(*)::int` })
+    .from(orders)
+    .where(eq(orders.status, 'placed'));
   const [{ visible } = { visible: 0 }] = await db
     .select({ visible: sql<number>`count(*)::int` })
     .from(visibleShops);
-  return json({ from, to, visibleShops: visible, totalShops: allShops.length, rows: body });
+  const [{ total } = { total: 0 }] = await db
+    .select({ total: sql<number>`count(*)::int` })
+    .from(shops);
+  const body: Metrics = {
+    from,
+    to,
+    visibleShops: visible,
+    totalShops: total,
+    totals: {
+      ordersPlaced: sum('ordersPlaced'),
+      completed: sum('completed'),
+      awaitingMerchant: waiting,
+      feesPaise: sum('feesPaise'),
+      refundsPaise: sum('refundsPaise'),
+      netFeesPaise: sum('feesPaise') - sum('refundsPaise'),
+      salesPaise: sum('salesPaise'),
+    },
+    rows,
+  };
+  return json(body);
 }
 
 http('consoleClusters', ['GET'], 'console/clusters', clustersListHandler);
@@ -416,3 +567,11 @@ http('consoleLicenceReject', ['POST'], 'console/licences/{id}/reject', licenceRe
 http('consoleBlocked', ['GET'], 'console/users/blocked', blockedUsersHandler);
 http('consoleUnblock', ['POST'], 'console/users/{id}/unblock', unblockHandler);
 http('consoleMetrics', ['GET'], 'console/metrics', metricsHandler);
+http('consoleOrders', ['GET'], 'console/orders', ordersListHandler);
+http('consoleOrderRefundFee', ['POST'], 'console/orders/{id}/refund-fee', orderRefundFeeHandler);
+http(
+  'consoleShopPaymentSettings',
+  ['GET', 'PUT'],
+  'console/shops/{id}/payment-settings',
+  shopPaymentSettingsHandler,
+);

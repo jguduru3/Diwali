@@ -16,6 +16,8 @@ const ROLE_ICON: Record<string, string> = {
   customer: '🪔',
   shop_owner: '🏪',
   shop_staff: '🧾',
+  shop_packer: '📦',
+  shop_cashier: '💳',
   marshal: '🚦',
   admin: '✦',
 };

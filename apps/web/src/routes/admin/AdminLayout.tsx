@@ -2,7 +2,16 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { PageTitle, cx } from '../../components/ui';
 
-const tabs = ['', 'licences', 'shops', 'clusters', 'categories', 'team', 'blocked'] as const;
+const tabs = [
+  '',
+  'orders',
+  'licences',
+  'shops',
+  'clusters',
+  'categories',
+  'team',
+  'blocked',
+] as const;
 
 export function AdminLayout() {
   const { t } = useTranslation();
