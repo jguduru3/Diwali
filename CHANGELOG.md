@@ -1,5 +1,21 @@
 # Changelog
 
+## Diwali Express Pickup — multi-merchant pickup orders (2026-10-18)
+
+SPEC_V3 (`docs/SPEC_V3_ORDERS.md`). Renamed from Festive Diwali; guardrails rewritten in CLAUDE.md.
+
+- **Legal gate (L1):** online ordering behind `ORDERING_ENABLED`, off by default and in prod Bicep. List-QR mode still works with it off.
+- **Orders:** customers order from a merchant's catalogue; the server prices every line (offer prices) and enforces every state change (G11). Strict bodies: item ids and quantities only.
+- **₹30 platform fee:** paid through the payment adapter (mock provider outside prod). Signed provider events applied once per event id. Full refund automatically when the shop doesn't confirm within 3 days (hourly job), declines, the customer cancels before confirmation, or nothing could be supplied; kept once confirmed. Admin can refund by hand.
+- **Merchant:** products with photo upload (shop-media store, `/api/media`), barcode, stock, offer price and end time; orders board (confirm/decline); roles `shop_packer` and `shop_cashier` with per-role tabs and API checks.
+- **Packing:** scan every unit's barcode (camera, photo or handheld scanner), atomic stock decrement, pick by hand for items without barcode, out-of-stock and alternative proposals that wait for the customer's answer, finish → per-day pack number and sticker QR (reprint rotates it).
+- **Express Pickup counter:** customer's pickup QR → pack sticker must match → payment to the merchant by their own YouPI-PG UPI (create, HMAC-signed webhook, server-side status polling), card approval code, or cash with change → bill (per-shop number, licence no., safety notice) shown to the customer.
+- **Gate:** marshal scans a pickup QR to direct the customer to the right shop and pack.
+- **Admin:** orders and fee states, refund ₹30, merchant counter-payment settings at onboarding, metrics (orders, fees, refunds, merchant sales for reconciliation, no commission).
+- **Removed:** slot booking, visits, holding bays, no-show strikes, slot generator (migration 0004). Orders schema in migration 0005.
+- **Not built:** multi-level paid referral scheme (would be a money-circulation scheme); see the session notes for lawful alternatives.
+- Checks: 114 unit tests, 55 integration tests (incl. concurrent last-unit scans, webhook replay/signature, QR replay/wrong pack/wrong shop, YouPI-PG against a local fake server), copy-lint, build. Walked through the full flow in the browser on the dev stack.
+
 ## Festive Diwali — full build, demo mode, premium UI, Azure deploy (2026-10-15)
 
 Phases 1–7 of the spec, plus the rename and redesign.

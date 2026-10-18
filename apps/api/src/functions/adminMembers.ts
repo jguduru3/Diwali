@@ -1,6 +1,12 @@
 import { app, type HttpRequest, type HttpResponseInit } from '@azure/functions';
 import { and, asc, eq, isNull, ne, sql } from 'drizzle-orm';
-import { assignRoleSchema, type AdminMembersResponse, type StaffMember } from '@pataka/shared';
+import {
+  VENDOR_ROLES,
+  assignRoleSchema,
+  type AdminMembersResponse,
+  type Role,
+  type StaffMember,
+} from '@pataka/shared';
 import { getDb, type Db } from '../db/client';
 import { clusterMarshals, clusters, shopMembers, shops, users } from '../db/schema';
 import { audit } from '../lib/audit';
@@ -62,7 +68,7 @@ export async function assignRoleHandler(
   const member = await db.transaction(async (tx) => {
     let shopId: string | null = null;
     let clusterId: string | null = null;
-    if (input.role === 'shop_owner' || input.role === 'shop_staff') {
+    if ((VENDOR_ROLES as readonly Role[]).includes(input.role)) {
       const [shop] = await tx
         .select({ id: shops.id })
         .from(shops)

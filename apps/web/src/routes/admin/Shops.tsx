@@ -6,6 +6,7 @@ import { Badge, Button, Card, Field, Input, Select, Spinner, Toggle } from '../.
 import { dayIST } from '../../lib/format';
 import { useAdminClusters, useAdminShops, useCreateShop, usePatchShop } from '../../lib/queries';
 import { LicenceBadge } from '../shop/Licence';
+import { PaymentSettingsForm } from '../shop/Payments';
 
 const num = (s: string) => (s.trim() ? Number(s) : undefined);
 
@@ -17,6 +18,7 @@ export function Shops() {
   const create = useCreateShop();
   const patch = usePatchShop();
   const [open, setOpen] = useState(false);
+  const [payments, setPayments] = useState<string | null>(null);
   const [f, setF] = useState({
     shortCode: '',
     name: '',
@@ -153,6 +155,13 @@ export function Shops() {
                 )}
               </div>
             </div>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setPayments(payments === s.id ? null : s.id)}
+            >
+              {t('admin.counterPayments')}
+            </Button>
             <label className="flex items-center gap-3 text-sm font-semibold">
               {t('admin.live')}
               <Toggle
@@ -162,6 +171,11 @@ export function Shops() {
                 onChange={(isLive) => patch.mutate({ id: s.id, patch: { isLive } })}
               />
             </label>
+            {payments === s.id && (
+              <div className="w-full border-t border-line/70 pt-4">
+                <PaymentSettingsForm shopId={s.id} />
+              </div>
+            )}
           </Card>
         ))}
       </ul>

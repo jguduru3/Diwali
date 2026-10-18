@@ -38,7 +38,7 @@ import {
   shops,
   visibleShops,
 } from '../db/schema';
-import { requireShop, requireUuidParam, type ShopRow } from '../lib/access';
+import { requireShop, requireUuidParam, type ShopRole, type ShopRow } from '../lib/access';
 import { audit } from '../lib/audit';
 import { bumpPriceVersion, categoryView, getPriceVersion, itemView } from '../lib/catalogue';
 import { HttpError } from '../lib/errors';
@@ -76,7 +76,12 @@ import { fileStore, itemImagePath, licenceBlobPath, sniffImage } from '../lib/st
 
 // ---- Context ----
 
-async function shopContext(db: Db, shop: ShopRow, canEdit: boolean): Promise<ShopContext> {
+async function shopContext(
+  db: Db,
+  shop: ShopRow,
+  canEdit: boolean,
+  role: ShopRole,
+): Promise<ShopContext> {
   const [visible] = await db
     .select({ id: visibleShops.id })
     .from(visibleShops)
@@ -94,6 +99,7 @@ async function shopContext(db: Db, shop: ShopRow, canEdit: boolean): Promise<Sho
     openTo: shop.openTo?.slice(0, 5) ?? null,
     priceVersion: await getPriceVersion(db, shop.id),
     canEdit,
+    role,
     cluster: clusterView(cluster ?? null),
   };
 }
@@ -101,8 +107,8 @@ async function shopContext(db: Db, shop: ShopRow, canEdit: boolean): Promise<Sho
 /** GET /api/shop/context */
 export async function shopContextHandler(req: HttpRequest): Promise<HttpResponseInit> {
   const db = getDb();
-  const { shop, isOwner } = await requireShop(db, req);
-  return json(await shopContext(db, shop, isOwner));
+  const { shop, isOwner, role } = await requireShop(db, req);
+  return json(await shopContext(db, shop, isOwner, role));
 }
 
 // ---- Price list ----
@@ -225,7 +231,7 @@ async function updateItem(
 /** PUT /api/shop/settings — opening hours (shown as open/closed on the shop list). */
 export async function shopSettingsHandler(req: HttpRequest): Promise<HttpResponseInit> {
   const db = getDb();
-  const { user, shop } = await requireShop(db, req, { ownerOnly: true });
+  const { user, shop, role } = await requireShop(db, req, { ownerOnly: true });
   const input = await parseBody(req, shopSettingsSchema);
   if (input.openFrom >= input.openTo) {
     throw new HttpError(400, 'invalid_body', 'Opening time must be before closing time');
@@ -239,7 +245,7 @@ export async function shopSettingsHandler(req: HttpRequest): Promise<HttpRespons
     meta: input,
   });
   const [fresh] = await db.select().from(shops).where(eq(shops.id, shop.id));
-  return json(await shopContext(db, fresh!, true));
+  return json(await shopContext(db, fresh!, true, role));
 }
 
 // ---- Product photos ----

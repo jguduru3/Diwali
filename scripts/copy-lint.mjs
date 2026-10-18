@@ -1,28 +1,13 @@
-// G5 copy lint: no "order", "reserve", "cart", "checkout", "delivery", "booking confirmed",
-// "buy now" or "100% legal" in any customer- or shop-facing text.
+// G5 copy lint (SPEC_V3 §2): pickup only and pay at the counter, so no "delivery",
+// "buy now", "booking confirmed" or "100% legal" in any customer- or shop-facing text.
 // Checks every i18n catalogue value and every string literal / JSX text in .tsx files.
 //   pnpm copy-lint
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
-const BANNED = [
-  'order',
-  'orders',
-  'ordered',
-  'reserve',
-  'reserved',
-  'reservation',
-  'reservations',
-  'cart',
-  'checkout',
-  'buy now',
-  'booking confirmed',
-  'delivery',
-  'deliver',
-  'delivered',
-  '100% legal',
-];
+// Keep in step with BANNED_COPY_TERMS in packages/shared/src/copy.ts (SPEC_V3 §2).
+const BANNED = ['buy now', 'booking confirmed', 'delivery', 'deliver', 'delivered', '100% legal'];
 const patterns = BANNED.map((term) => ({
   term,
   re: new RegExp(`(^|[^a-z])${term.replace(/[.*+?^${}()|[\]\\%]/g, '\\$&')}([^a-z]|$)`, 'i'),

@@ -63,7 +63,7 @@ export const env = {
   },
   /** Public origin used in links given to merchants (webhook URL). */
   publicOrigin(): string {
-    return process.env.PUBLIC_ORIGIN || 'http://localhost:5173';
+    return process.env.PUBLIC_ORIGIN || (this.isProd() ? '' : 'http://localhost:5173');
   },
   /** Payment provider adapter name. The mock provider is refused in prod. */
   paymentProvider(): string {

@@ -59,6 +59,7 @@ jobs:
             -p postgresAdminPassword="${{ secrets.PG_ADMIN_PASSWORD }}" \
                appDbPassword="${{ secrets.APP_DB_PASSWORD }}" \
                jwtSecret="${{ secrets.JWT_SECRET }}" \
+               merchantSecretsKey="${{ secrets.MERCHANT_SECRETS_KEY }}" \
                msg91AuthKey="${{ secrets.MSG91_AUTH_KEY }}" \
                msg91TemplateId="${{ vars.MSG91_TEMPLATE_ID }}" \
                deployerPrincipalId="${{ secrets.AZURE_DEPLOYER_OBJECT_ID }}" \

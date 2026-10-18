@@ -85,8 +85,8 @@ export function Layout() {
             {t('nav.home')}
           </NavLink>
           {me?.role === 'customer' && (
-            <NavLink to="/ticket" className={navClass}>
-              {t('nav.ticket')}
+            <NavLink to="/orders" className={navClass}>
+              {t('nav.orders')}
             </NavLink>
           )}
           {visible.map((l) => (

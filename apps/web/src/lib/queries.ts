@@ -2,49 +2,54 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useSyncExternalStore } from 'react';
 import { z } from 'zod';
 import {
+  FINAL_ORDER_STATUSES,
   adminClusterSchema,
+  adminOrderSchema,
   adminShopSchema,
   areaSchema,
   blockedUserSchema,
   categorySchema,
-  currentVisitResponseSchema,
+  customerOrderSchema,
+  customerOrderSummarySchema,
   demoInfoSchema,
   footfallRowSchema,
-  gateCheckinResultSchema,
-  gateTodaySchema,
+  gateLookupSchema,
   itemSchema,
   itemsResponseSchema,
   licenceSchema,
   meSchema,
-  metricsRowSchema,
-  queueVisitSchema,
+  merchantPaymentSettingsViewSchema,
+  metricsSchema,
+  mockCheckoutSchema,
+  orderQrResponseSchema,
+  packStickerSchema,
   shopContextSchema,
   shopDetailSchema,
   shopSummarySchema,
-  shopTodaySchema,
-  slotSchema,
-  visitSchema,
+  staffOrderSchema,
+  staffOrderSummarySchema,
   type CategoryInput,
   type ClusterInput,
-  type CreateVisit,
-  type DaySlots,
-  type GateCheckin,
+  type CustomerDecision,
+  type CustomerOrder,
+  type ImageUpload,
   type ItemInput,
   type ItemPatch,
   type LicenceSubmit,
+  type MerchantPaymentSettingsInput,
+  type OrderStatus,
+  type PlaceOrder,
+  type ProposeAlternate,
   type ShopInput,
   type ShopPatch,
   type ShopSettings,
 } from '@pataka/shared';
 import { switchAccount, useMe } from '../auth/useAuth';
 import { api } from './api';
-import { saveTicket } from './ticketStore';
+import { savePickupQr } from './orderStore';
 
-const daySlotsResponse = z.object({
-  date: z.string(),
-  dates: z.array(z.string()),
-  slots: z.array(slotSchema),
-});
+const isFinal = (s: OrderStatus | undefined) =>
+  !!s && (FINAL_ORDER_STATUSES as readonly OrderStatus[]).includes(s);
 
 // ---- Public ----
 
@@ -76,52 +81,113 @@ export const useShopItems = (code: string) =>
     queryFn: () => api(`/shops/${code}/items`, { schema: itemsResponseSchema }),
   });
 
-export const useShopSlots = (code: string, date: string | undefined) =>
+const orderingInfoSchema = z.object({
+  enabled: z.boolean(),
+  feePaise: z.number(),
+  confirmWindowHours: z.number(),
+});
+
+export const useOrderingInfo = () =>
   useQuery({
-    queryKey: ['shopSlots', code, date],
-    queryFn: () =>
-      api(`/shops/${code}/slots${date ? `?date=${date}` : ''}`, { schema: daySlotsResponse }),
-    refetchInterval: 30_000,
+    queryKey: ['ordering'],
+    queryFn: () => api('/ordering', { schema: orderingInfoSchema }),
+    staleTime: 5 * 60_000,
   });
 
-// ---- Customer ----
+// ---- Customer orders ----
 
-export function useCurrentVisit(enabled: boolean) {
-  return useQuery({
-    queryKey: ['currentVisit'],
-    queryFn: async () => {
-      const { visit } = await api('/visits/current', { schema: currentVisitResponseSchema });
-      saveTicket(visit);
-      return visit;
+export function usePlaceOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: PlaceOrder) =>
+      api('/orders', { method: 'POST', body, schema: customerOrderSchema }),
+    onSuccess: (order) => {
+      qc.setQueryData(['order', order.id], order);
+      void qc.invalidateQueries({ queryKey: ['myOrders'] });
     },
+  });
+}
+
+export const useMyOrders = (enabled = true) =>
+  useQuery({
     enabled,
-    refetchInterval: 20_000,
+    queryKey: ['myOrders'],
+    queryFn: () => api('/orders/mine', { schema: z.array(customerOrderSummarySchema) }),
   });
-}
 
-export function useBookVisit() {
+export const useOrder = (id: string) =>
+  useQuery({
+    queryKey: ['order', id],
+    queryFn: () => api(`/orders/${id}`, { schema: customerOrderSchema }),
+    // The shop works on it meanwhile: keep the status fresh until it closes.
+    refetchInterval: (q) => (isFinal(q.state.data?.status) ? false : 10_000),
+  });
+
+function useOrderMutation<TBody>(
+  fn: (id: string, body: TBody) => Promise<CustomerOrder>,
+  id: string,
+) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: CreateVisit) =>
-      api('/visits', { method: 'POST', body, schema: visitSchema }),
-    onSuccess: (visit) => {
-      saveTicket(visit);
-      qc.setQueryData(['currentVisit'], visit);
-      void qc.invalidateQueries({ queryKey: ['shopSlots'] });
-      void qc.invalidateQueries({ queryKey: ['shops'] });
+    mutationFn: (body: TBody) => fn(id, body),
+    onSuccess: (order) => {
+      qc.setQueryData(['order', id], order);
+      void qc.invalidateQueries({ queryKey: ['myOrders'] });
     },
   });
 }
 
-export function useCancelVisit() {
+export const useStartFee = (id: string) =>
+  useOrderMutation(
+    (oid) => api(`/orders/${oid}/fee`, { method: 'POST', schema: customerOrderSchema }),
+    id,
+  );
+
+export const useCancelOrder = (id: string) =>
+  useOrderMutation(
+    (oid, reason: string | undefined) =>
+      api(`/orders/${oid}/cancel`, {
+        method: 'POST',
+        body: reason ? { reason } : {},
+        schema: customerOrderSchema,
+      }),
+    id,
+  );
+
+export const useDecision = (id: string) =>
+  useOrderMutation(
+    (oid, body: CustomerDecision) =>
+      api(`/orders/${oid}/decisions`, { method: 'POST', body, schema: customerOrderSchema }),
+    id,
+  );
+
+/** Shows (and rotates) the pickup QR, keeping a copy on the phone for the ground. */
+export const usePickupQr = (id: string) =>
+  useMutation({
+    mutationFn: () =>
+      api(`/orders/${id}/pickup-qr`, { method: 'POST', schema: orderQrResponseSchema }),
+    onSuccess: (r) => savePickupQr(r.orderId, r.qr),
+  });
+
+export const useMockCheckout = (checkoutId: string) =>
+  useQuery({
+    queryKey: ['mockCheckout', checkoutId],
+    queryFn: () => api(`/payments/mock/${checkoutId}`, { schema: mockCheckoutSchema }),
+  });
+
+export function useMockComplete(checkoutId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (code: string) =>
-      api(`/visits/${code}/cancel`, { method: 'POST', schema: visitSchema }),
-    onSuccess: () => {
-      saveTicket(null);
-      qc.setQueryData(['currentVisit'], null);
-      void qc.invalidateQueries({ queryKey: ['shopSlots'] });
+    mutationFn: (outcome: 'success' | 'fail') =>
+      api(`/payments/mock/${checkoutId}/complete`, {
+        method: 'POST',
+        body: { outcome },
+        schema: z.object({ ok: z.boolean(), outcome: z.string(), orderId: z.string() }),
+      }),
+    onSuccess: (r) => {
+      void qc.invalidateQueries({ queryKey: ['order', r.orderId] });
+      void qc.invalidateQueries({ queryKey: ['mockCheckout', checkoutId] });
+      void qc.invalidateQueries({ queryKey: ['myOrders'] });
     },
   });
 }
@@ -222,12 +288,16 @@ export function useOwnItems() {
 function useShopMutation<TBody, TOut>(
   fn: (q: string, body: TBody) => Promise<TOut>,
   invalidate: string[][],
+  onDone?: (out: TOut) => void,
 ) {
   const qc = useQueryClient();
   const s = useShopScope();
   return useMutation({
     mutationFn: (body: TBody) => fn(s.q(), body),
-    onSuccess: () => invalidate.forEach((k) => void qc.invalidateQueries({ queryKey: k })),
+    onSuccess: (out) => {
+      invalidate.forEach((k) => void qc.invalidateQueries({ queryKey: k }));
+      onDone?.(out);
+    },
   });
 }
 
@@ -256,61 +326,139 @@ export const useSoldOut = () =>
     [['ownItems'], ['shopCtx']],
   );
 
+export const useItemImage = () =>
+  useShopMutation(
+    (q, { id, image }: { id: string; image: ImageUpload }) =>
+      api(`/shop/items/${id}/image${q}`, { method: 'POST', body: image, schema: itemSchema }),
+    [['ownItems']],
+  );
+
 export const useSaveSettings = () =>
   useShopMutation(
     (q, body: ShopSettings) =>
       api(`/shop/settings${q}`, { method: 'PUT', body, schema: shopContextSchema }),
-    [['shopCtx'], ['ownSlots']],
+    [['shopCtx']],
   );
 
-export function useOwnSlots(date: string | undefined) {
+export type OrdersView = 'incoming' | 'packing' | 'counter' | 'done';
+
+export function useShopOrders(view: OrdersView) {
   const s = useShopScope();
   return useQuery({
-    queryKey: ['ownSlots', s.code, date],
+    queryKey: ['shopOrders', s.code, view],
     queryFn: () =>
-      api(`/shop/slots?${date ? `date=${date}` : ''}${s.q('&')}`, { schema: daySlotsResponse }),
-  });
-}
-
-export const useSaveDaySlots = () =>
-  useShopMutation(
-    (q, body: DaySlots) =>
-      api(`/shop/slots/day${q}`, { method: 'PUT', body, schema: daySlotsResponse }),
-    [['ownSlots']],
-  );
-
-export const useSlotCapacity = () =>
-  useShopMutation(
-    (q, { id, capacity }: { id: string; capacity: number }) =>
-      api(`/shop/slots/${id}${q}`, { method: 'PATCH', body: { capacity }, schema: slotSchema }),
-    [['ownSlots']],
-  );
-
-export function useShopToday(date?: string) {
-  const s = useShopScope();
-  return useQuery({
-    queryKey: ['shopToday', s.code, date],
-    queryFn: () =>
-      api(`/shop/visits/today?${date ? `date=${date}` : ''}${s.q('&')}`, {
-        schema: shopTodaySchema,
-      }),
+      api(`/shop/orders?view=${view}${s.q('&')}`, { schema: z.array(staffOrderSummarySchema) }),
     refetchInterval: 10_000, // SPEC §3: shop screens poll every 10 s
   });
 }
 
-export const useServe = () =>
-  useShopMutation(
-    (q, code: string) =>
-      api(`/shop/visits/${code}/serve${q}`, { method: 'POST', schema: queueVisitSchema }),
-    [['shopToday']],
-  );
+export function useShopOrder(id: string | null) {
+  const s = useShopScope();
+  return useQuery({
+    enabled: !!id,
+    queryKey: ['shopOrder', s.code, id],
+    queryFn: () => api(`/shop/orders/${id}${s.q()}`, { schema: staffOrderSchema }),
+    refetchInterval: 10_000,
+  });
+}
 
-export const useNoShow = () =>
-  useShopMutation(
-    (q, code: string) =>
-      api(`/shop/visits/${code}/no-show${q}`, { method: 'POST', schema: queueVisitSchema }),
-    [['shopToday']],
-  );
+/** POST to a shop-order action; refreshes the lists and the open order. */
+function useOrderAction<TBody>(action: string) {
+  const qc = useQueryClient();
+  const s = useShopScope();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body?: TBody }) =>
+      api(`/shop/orders/${id}/${action}${s.q()}`, {
+        method: 'POST',
+        body,
+        schema: staffOrderSchema,
+      }),
+    onSuccess: (o) => {
+      qc.setQueryData(['shopOrder', s.code, o.id], o);
+      void qc.invalidateQueries({ queryKey: ['shopOrders'] });
+    },
+  });
+}
+
+export const useConfirmOrder = () => useOrderAction<undefined>('confirm');
+export const useRejectOrder = () => useOrderAction<{ reason: string }>('reject');
+export const useStartPacking = () => useOrderAction<undefined>('start-packing');
+export const useScanItem = () => useOrderAction<{ barcode: string }>('scan');
+export const usePickByHand = () => useOrderAction<{ lineId: string }>('pick');
+export const useOutOfStock = () => useOrderAction<{ lineId: string }>('out-of-stock');
+export const useProposeAlternate = () => useOrderAction<ProposeAlternate>('alternate');
+
+export function useFinishPacking() {
+  const qc = useQueryClient();
+  const s = useShopScope();
+  return useMutation({
+    mutationFn: ({ id, reprint }: { id: string; reprint?: boolean }) =>
+      api(`/shop/orders/${id}/${reprint ? 'sticker' : 'finish'}${s.q()}`, {
+        method: 'POST',
+        schema: packStickerSchema,
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['shopOrders'] });
+      void qc.invalidateQueries({ queryKey: ['shopOrder'] });
+    },
+  });
+}
+
+/** Express Pickup counter calls. */
+function useCounterCall<TBody>(path: (id: string) => string) {
+  const qc = useQueryClient();
+  const s = useShopScope();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body?: TBody }) =>
+      api(`/shop/counter/${path(id)}${s.q()}`, { method: 'POST', body, schema: staffOrderSchema }),
+    onSuccess: (o) => {
+      qc.setQueryData(['counterOrder', s.code, o.id], o);
+      void qc.invalidateQueries({ queryKey: ['shopOrders'] });
+    },
+  });
+}
+
+export const useCounterOpen = () => useCounterCall<{ qr: string }>(() => 'open');
+export const useCounterPack = () => useCounterCall<{ qr: string }>((id) => `${id}/pack`);
+export const useCounterUpi = () => useCounterCall<undefined>((id) => `${id}/upi`);
+export const useCounterUpiSim = () => useCounterCall<undefined>((id) => `${id}/upi-simulated`);
+export const useCounterCard = () => useCounterCall<{ approvalCode: string }>((id) => `${id}/card`);
+export const useCounterCash = () => useCounterCall<{ receivedPaise: number }>((id) => `${id}/cash`);
+
+/** Polls a pending UPI payment; the server asks the merchant's YouPI-PG. */
+export function useCounterPoll(id: string | null, enabled: boolean) {
+  const s = useShopScope();
+  return useQuery({
+    enabled: !!id && enabled,
+    queryKey: ['counterOrder', s.code, id],
+    queryFn: () => api(`/shop/counter/${id}${s.q()}`, { schema: staffOrderSchema }),
+    refetchInterval: enabled ? 3_000 : false,
+  });
+}
+
+export function usePaymentSettings(shopId?: string) {
+  const s = useShopScope();
+  const path = shopId
+    ? `/console/shops/${shopId}/payment-settings`
+    : `/shop/payment-settings${s.q()}`;
+  return useQuery({
+    queryKey: ['paymentSettings', shopId ?? s.code],
+    queryFn: () => api(path, { schema: merchantPaymentSettingsViewSchema }),
+  });
+}
+
+export function useSavePaymentSettings(shopId?: string) {
+  const qc = useQueryClient();
+  const s = useShopScope();
+  const path = shopId
+    ? `/console/shops/${shopId}/payment-settings`
+    : `/shop/payment-settings${s.q()}`;
+  return useMutation({
+    mutationFn: (body: MerchantPaymentSettingsInput) =>
+      api(path, { method: 'PUT', body, schema: merchantPaymentSettingsViewSchema }),
+    onSuccess: (v) => qc.setQueryData(['paymentSettings', shopId ?? s.code], v),
+  });
+}
 
 export function useShopStats() {
   const s = useShopScope();
@@ -340,22 +488,11 @@ export const useSubmitLicence = () =>
 
 // ---- Gate ----
 
-export function useGateToday() {
-  const c = useClusterScope();
-  return useQuery({
-    queryKey: ['gateToday', c.id],
-    queryFn: () => api(`/gate/today${c.q()}`, { schema: gateTodaySchema }),
-    refetchInterval: 10_000,
-  });
-}
-
-export function useCheckin() {
-  const qc = useQueryClient();
+export function useGateLookup() {
   const c = useClusterScope();
   return useMutation({
-    mutationFn: (body: GateCheckin) =>
-      api(`/gate/checkin${c.q()}`, { method: 'POST', body, schema: gateCheckinResultSchema }),
-    onSettled: () => void qc.invalidateQueries({ queryKey: ['gateToday'] }),
+    mutationFn: (qr: string) =>
+      api(`/gate/lookup${c.q()}`, { method: 'POST', body: { qr }, schema: gateLookupSchema }),
   });
 }
 
@@ -390,6 +527,17 @@ export const useAdminLicences = (status: string) =>
       }),
   });
 
+export const useAdminOrders = (q: string, status: string) =>
+  useQuery({
+    queryKey: ['adminOrders', q, status],
+    queryFn: () => {
+      const qs = new URLSearchParams();
+      if (q) qs.set('q', q);
+      if (status) qs.set('status', status);
+      return api(`/console/orders?${qs}`, { schema: z.array(adminOrderSchema) });
+    },
+  });
+
 export const useBlocked = () =>
   useQuery({
     queryKey: ['blocked'],
@@ -399,16 +547,7 @@ export const useBlocked = () =>
 export const useMetrics = () =>
   useQuery({
     queryKey: ['metrics'],
-    queryFn: () =>
-      api('/console/metrics', {
-        schema: z.object({
-          from: z.string(),
-          to: z.string(),
-          visibleShops: z.number(),
-          totalShops: z.number(),
-          rows: z.array(metricsRowSchema),
-        }),
-      }),
+    queryFn: () => api('/console/metrics', { schema: metricsSchema }),
     refetchInterval: 30_000,
   });
 
@@ -463,4 +602,10 @@ export const useUnblock = () =>
   useAdminMutation(
     (id: string) => api(`/console/users/${id}/unblock`, { method: 'POST' }),
     [['blocked']],
+  );
+export const useRefundFee = () =>
+  useAdminMutation(
+    ({ id, reason }: { id: string; reason: string }) =>
+      api(`/console/orders/${id}/refund-fee`, { method: 'POST', body: { reason } }),
+    [['adminOrders'], ['metrics']],
   );

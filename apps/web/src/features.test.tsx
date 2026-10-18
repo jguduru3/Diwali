@@ -1,10 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router-dom';
-import { decodePlan, encodePlan, type Visit } from '@pataka/shared';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { decodePlan, encodePlan, type CustomerOrder, type StaffOrder } from '@pataka/shared';
 import { getPlan } from './lib/planList';
-import { Ticket } from './routes/customer/TicketPage';
 import { account, itemsResponse, mockApi } from './test/mockApi';
 import { renderAt } from './test/render';
 
@@ -13,67 +10,75 @@ vi.mock('./components/ShopMap', () => ({ default: () => null }));
 beforeEach(() => localStorage.clear());
 afterEach(() => vi.unstubAllGlobals());
 
-const visit: Visit = {
-  code: 'K7Q2M9',
-  status: 'booked',
-  vehicle: 'car',
-  bayNo: null,
-  slot: { startsAt: '2026-11-07T13:30:00.000Z', endsAt: '2026-11-07T14:00:00.000Z' },
-  shop: { shortCode: 'SLC01', name: 'Sri Lakshmi Crackers', address: null, lat: null, lng: null },
+const ORDER_ID = '00000000-0000-4000-8000-0000000000aa';
+
+const shopDetail = {
+  shortCode: 'SLC01',
+  name: 'Sri Lakshmi Crackers',
+  area: 'Gachibowli',
+  address: null,
+  lat: null,
+  lng: null,
+  photoUrl: null,
+  openFrom: '10:00',
+  openTo: '22:00',
+  openNow: true,
+  distanceKm: null,
+  licence: { licenceNo: 'LE5/1', licenceType: 'LE-5', validTo: '2026-11-30' },
   cluster: null,
-  arrivedAt: null,
-  servedAt: null,
-  createdAt: '2026-11-01T00:00:00.000Z',
+  phone: null,
+  priceVersion: 3,
 };
 
-describe('G8 — ticket safety notice', () => {
-  it('every ticket shows the exact safety notice', async () => {
-    mockApi(account('customer'), { extra: { '/shops/SLC01/items': itemsResponse } });
-    render(
-      <QueryClientProvider client={new QueryClient()}>
-        <MemoryRouter>
-          <Ticket visit={visit} />
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
-    const notice = await screen.findByTestId('safety-notice');
+const packedOrder: CustomerOrder = {
+  id: ORDER_ID,
+  code: 'K7Q-2M9',
+  status: 'packed',
+  shop: {
+    shortCode: 'SLC01',
+    name: 'Sri Lakshmi Crackers',
+    address: null,
+    lat: null,
+    lng: null,
+    pickupNotes: null,
+  },
+  lines: [],
+  estimatedTotalPaise: 30000,
+  finalTotalPaise: 30000,
+  packNo: 7,
+  fee: { amountPaise: 3000, status: 'kept', checkout: null },
+  placedAt: '2026-11-01T05:00:00.000Z',
+  confirmBy: '2026-11-04T05:00:00.000Z',
+  confirmedAt: '2026-11-01T06:00:00.000Z',
+  packedAt: '2026-11-01T07:00:00.000Z',
+  completedAt: null,
+  cancelReason: null,
+  bill: null,
+};
+
+describe('G8 — safety notice on the pickup QR', () => {
+  it('a packed order shows the pack number, the pickup QR and the exact safety notice', async () => {
+    localStorage.setItem(`pp.pickup.${ORDER_ID}`, 'DXO1.0123456789ABCDEFGHJKMNPQRS');
+    mockApi(account('customer'), { extra: { [`/orders/${ORDER_ID}`]: packedOrder } });
+    renderAt(`/orders/${ORDER_ID}`);
+    expect(await screen.findByText('Pack #7')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Pickup QR for order K7Q-2M9' })).toBeInTheDocument();
+    const notice = screen.getByTestId('safety-notice');
     expect(notice.textContent).toMatchInlineSnapshot(
       `"🪔Green crackers only. Burst only between 8 pm and 10 pm on Diwali, as per Supreme Court orders. Keep children supervised."`,
     );
-    expect(screen.getByText('K7Q2M9')).toBeInTheDocument();
   });
 });
 
-describe('plan list (G1 — stays on the phone)', () => {
-  it('adding items writes to localStorage only; no request carries the list', async () => {
+describe('building an order', () => {
+  it('adding items stays on the phone until the order is placed', async () => {
     const calls = mockApi(null, {
-      extra: {
-        '/shops/SLC01': {
-          shortCode: 'SLC01',
-          name: 'Sri Lakshmi Crackers',
-          area: 'Gachibowli',
-          address: null,
-          lat: null,
-          lng: null,
-          photoUrl: null,
-          openFrom: '10:00',
-          openTo: '22:00',
-          openNow: true,
-          distanceKm: null,
-          licence: { licenceNo: 'LE5/1', licenceType: 'LE-5', validTo: '2026-11-30' },
-          cluster: null,
-          nextFreeSlot: null,
-          phone: null,
-          priceVersion: 3,
-          slotMinutes: 30,
-        },
-        '/shops/SLC01/items': itemsResponse,
-      },
+      extra: { '/shops/SLC01': shopDetail, '/shops/SLC01/items': itemsResponse },
     });
     renderAt('/s/SLC01');
-    fireEvent.click(await screen.findByRole('button', { name: 'Add Sparkler 1 to plan list' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Add Sparkler 1' }));
     fireEvent.click(screen.getByRole('button', { name: 'One more Sparkler 1' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add Sparkler 2 to plan list' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add Sparkler 2' }));
 
     expect(getPlan('SLC01')).toMatchObject({
       priceVersion: 3,
@@ -88,39 +93,59 @@ describe('plan list (G1 — stays on the phone)', () => {
 
   it('sold-out items cannot be added', async () => {
     mockApi(null, {
-      extra: {
-        '/shops/SLC01': {
-          ...{
-            shortCode: 'SLC01',
-            name: 'S',
-            area: 'A',
-            address: null,
-            lat: null,
-            lng: null,
-            photoUrl: null,
-            openFrom: null,
-            openTo: null,
-            openNow: false,
-            distanceKm: null,
-            licence: { licenceNo: 'x', licenceType: 'LE-5', validTo: '2026-11-30' },
-            cluster: null,
-            nextFreeSlot: null,
-            phone: null,
-            priceVersion: 3,
-            slotMinutes: 30,
-          },
-        },
-        '/shops/SLC01/items': itemsResponse,
-      },
+      extra: { '/shops/SLC01': shopDetail, '/shops/SLC01/items': itemsResponse },
     });
     renderAt('/s/SLC01');
-    expect(
-      await screen.findByRole('button', { name: 'Add Sparkler 3 to plan list' }),
-    ).toBeDisabled();
+    expect(await screen.findByRole('button', { name: 'Add Sparkler 3' })).toBeDisabled();
+  });
+
+  it('placing an order sends item ids and quantities only — never prices or totals (G11)', async () => {
+    localStorage.setItem(
+      'pp.plan.SLC01',
+      JSON.stringify({
+        priceVersion: 3,
+        lines: [
+          { itemNo: 1, qty: 2 },
+          { itemNo: 2, qty: 1 },
+        ],
+        updatedAt: '',
+      }),
+    );
+    const calls = mockApi(account('customer'), {
+      extra: { '/shops/SLC01': shopDetail, '/shops/SLC01/items': itemsResponse },
+    });
+    renderAt('/s/SLC01/plan');
+    fireEvent.click(await screen.findByRole('button', { name: 'Place order · pay ₹30 fee' }));
+    await waitFor(() => expect(calls.some((c) => c.url === '/api/orders')).toBe(true));
+    const post = calls.find((c) => c.url === '/api/orders')!;
+    expect(JSON.parse(post.body!)).toEqual({
+      shopCode: 'SLC01',
+      lines: [
+        { itemId: itemsResponse.items[0]!.id, qty: 2 },
+        { itemId: itemsResponse.items[1]!.id, qty: 1 },
+      ],
+    });
+  });
+
+  it('when ordering is off, the list QR is offered instead', async () => {
+    localStorage.setItem(
+      'pp.plan.SLC01',
+      JSON.stringify({ priceVersion: 3, lines: [{ itemNo: 1, qty: 1 }], updatedAt: '' }),
+    );
+    mockApi(account('customer'), {
+      extra: {
+        '/shops/SLC01': shopDetail,
+        '/shops/SLC01/items': itemsResponse,
+        '/ordering': { enabled: false, feePaise: 3000, confirmWindowHours: 72 },
+      },
+    });
+    renderAt('/s/SLC01/plan');
+    expect(await screen.findByText(/Online ordering isn't open yet/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Place order/ })).not.toBeInTheDocument();
   });
 });
 
-describe('counter (G1/G2 — list decoded on the device)', () => {
+describe('Express Pickup counter', () => {
   const ctx = {
     shopCode: 'SLC01',
     name: 'Sri Lakshmi Crackers',
@@ -129,35 +154,19 @@ describe('counter (G1/G2 — list decoded on the device)', () => {
     visible: true,
     openFrom: '10:00',
     openTo: '22:00',
-    slotMinutes: 30,
-    defaultCapacityPerSlot: 10,
     priceVersion: 3,
     canEdit: false,
+    role: 'shop_cashier' as const,
     cluster: null,
   };
 
-  it('builds a pick list and bill locally, flags sold-out and changed prices, and sends only the code', async () => {
-    const calls = mockApi(account('shop_staff'), {
-      extra: {
-        '/shop/context': ctx,
-        '/shop/items': itemsResponse,
-        '/shop/visits/K7Q2M9/serve': {
-          code: 'K7Q2M9',
-          status: 'served',
-          vehicle: null,
-          bayNo: null,
-          shopCode: 'SLC01',
-          shopName: 'S',
-          slotStartsAt: visit.slot.startsAt,
-          slotEndsAt: visit.slot.endsAt,
-          arrivedAt: null,
-          servedAt: null,
-        },
-      },
+  it('a walk-in list is billed on the device; nothing is sent', async () => {
+    const calls = mockApi(account('shop_cashier'), {
+      extra: { '/shop/context': ctx, '/shop/items': itemsResponse },
     });
     renderAt('/shop/counter');
     const qr = encodePlan({
-      visitCode: 'K7Q2M9',
+      visitCode: null,
       shopCode: 'SLC01',
       priceVersion: 1,
       lines: [
@@ -167,7 +176,7 @@ describe('counter (G1/G2 — list decoded on the device)', () => {
       ],
     });
     expect(decodePlan(qr).ok).toBe(true);
-    const box = await screen.findByPlaceholderText('Type the 6-letter code or paste QR text');
+    const box = await screen.findByPlaceholderText('Paste or type the QR text');
     fireEvent.change(box, { target: { value: qr } });
     fireEvent.click(screen.getByRole('button', { name: 'Go' }));
 
@@ -176,23 +185,49 @@ describe('counter (G1/G2 — list decoded on the device)', () => {
     expect(screen.getByText('₹400')).toBeInTheDocument();
     expect(screen.getAllByText('Not available').length).toBe(1);
     expect(screen.getAllByText('Price changed').length).toBe(1);
-    expect(screen.getByText('Rack A1')).toBeInTheDocument();
+    expect(calls.filter((c) => c.method !== 'GET')).toEqual([]);
+  });
 
-    await act(async () => fireEvent.click(screen.getByRole('button', { name: /Mark served/ })));
-    await waitFor(() => expect(screen.getByText(/Marked served/)).toBeInTheDocument());
-
-    const posts = calls.filter((c) => c.method !== 'GET');
-    expect(posts).toEqual([{ url: '/api/shop/visits/K7Q2M9/serve', method: 'POST', body: null }]);
-    // No request anywhere carried item numbers or quantities.
-    for (const c of calls) expect(`${c.url} ${c.body ?? ''}`).not.toMatch(/\*|itemNo|qty/);
+  it('a pickup QR opens the order by sending only the QR; the pack number shows', async () => {
+    const order: StaffOrder = {
+      id: ORDER_ID,
+      code: 'K7Q-2M9',
+      status: 'packed',
+      customer: '••••••0099',
+      lines: [],
+      estimatedTotalPaise: 30000,
+      finalTotalPaise: 30000,
+      packNo: 7,
+      placedAt: null,
+      confirmBy: null,
+      confirmedAt: null,
+      packedAt: null,
+      completedAt: null,
+      packMatched: false,
+      counterPayment: null,
+      bill: null,
+    };
+    const calls = mockApi(account('shop_cashier'), {
+      extra: { '/shop/context': ctx, '/shop/items': itemsResponse, '/shop/counter/open': order },
+    });
+    renderAt('/shop/counter');
+    const qr = 'DXO1.0123456789ABCDEFGHJKMNPQRS';
+    const box = await screen.findByPlaceholderText('Paste or type the QR text');
+    fireEvent.change(box, { target: { value: qr } });
+    fireEvent.click(screen.getByRole('button', { name: 'Go' }));
+    expect(await screen.findByText('#7')).toBeInTheDocument();
+    expect(screen.getByText('Scan pack sticker')).toBeInTheDocument();
+    const post = calls.find((c) => c.method === 'POST')!;
+    expect(post.url).toBe('/api/shop/counter/open');
+    expect(JSON.parse(post.body!)).toEqual({ qr });
   });
 
   it('rejects a list for another shop', async () => {
-    mockApi(account('shop_staff'), {
+    mockApi(account('shop_cashier'), {
       extra: { '/shop/context': ctx, '/shop/items': itemsResponse },
     });
     renderAt('/shop/counter');
-    const box = await screen.findByPlaceholderText('Type the 6-letter code or paste QR text');
+    const box = await screen.findByPlaceholderText('Paste or type the QR text');
     fireEvent.change(box, { target: { value: 'PP1.-.BAL01.1.1*1' } });
     fireEvent.click(screen.getByRole('button', { name: 'Go' }));
     expect(await screen.findByText('This list is for another shop (BAL01).')).toBeInTheDocument();

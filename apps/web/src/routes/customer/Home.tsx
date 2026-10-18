@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import type { ShopSummary } from '@pataka/shared';
 import { ErrorText } from '../../components/ErrorText';
 import { Badge, Button, ButtonLink, Card, EmptyState, cx } from '../../components/ui';
-import { daysToDiwali, slotRange, dayIST } from '../../lib/format';
+import { daysToDiwali, dayIST } from '../../lib/format';
 import { useAreas, useShops } from '../../lib/queries';
 
 const ShopMap = lazy(() => import('../../components/ShopMap'));
@@ -80,7 +80,6 @@ function Hero() {
 
 function ShopCard({ shop }: { shop: ShopSummary }) {
   const { t } = useTranslation();
-  const next = shop.nextFreeSlot;
   return (
     <Card
       as="article"
@@ -120,21 +119,7 @@ function ShopCard({ shop }: { shop: ShopSummary }) {
         <Badge tone="emerald">🌿 {t('home.greenOnly')}</Badge>
       </div>
       <div className="mt-5 flex items-end justify-between gap-3 border-t border-line/70 pt-4">
-        <div className="text-sm">
-          <p className="text-xs font-semibold tracking-wide text-muted uppercase">
-            {t('home.nextSlot')}
-          </p>
-          {next ? (
-            <p className="font-semibold">
-              {dayIST(next.startsAt)}, {slotRange(next.startsAt, next.endsAt)}
-              <span className="ml-1 font-normal text-muted">
-                · {t('home.left', { count: next.remaining })}
-              </span>
-            </p>
-          ) : (
-            <p className="font-semibold text-muted">{t('home.noSlots')}</p>
-          )}
-        </div>
+        <p className="text-sm font-semibold text-gold-deep">⚡ {t('home.expressPickup')}</p>
         <span className="relative font-semibold text-plum transition group-hover:translate-x-0.5">
           {t('home.viewPrices')} →
         </span>

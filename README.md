@@ -1,26 +1,33 @@
 # Diwali Express Pickup
 
-Shop finder, green-cracker price lists and a drive-through pickup queue for licensed cracker
-shops in Hyderabad. Customers plan a list on their phone, book a 30-minute pickup slot and get a
-QR ticket. A marshal checks them into a holding bay; the shop counter scans the list QR and bills
-it in seconds. **All buying, packing, billing and payment happen at the licensed counter** — the
-platform never takes orders or money (Supreme Court orders, see [docs/SPEC.md](docs/SPEC.md) §1).
+A pickup-order platform for **many licensed Diwali merchants** in Hyderabad. Customers order from
+a merchant's catalogue and pay a **₹30 platform fee** online. The merchant confirms within
+3 days (or the fee is refunded automatically), a packer scans and packs the order, and the
+customer collects it at the shop's **Express Pickup** counter and pays the **merchant** there by
+UPI (merchant's own YouPI-PG), card or cash. Spec: [docs/SPEC_V3_ORDERS.md](docs/SPEC_V3_ORDERS.md)
+(amends [docs/SPEC.md](docs/SPEC.md)).
+
+> **Legal gate (L1):** online ordering is behind `ORDERING_ENABLED`, off in production until a
+> written legal opinion clears online orders for licensed firecracker retail in Telangana. With it
+> off, customers can still build a list and show its QR at the counter.
 
 ## What's inside
 
-| Area                     | Who                    | What they can do                                                                                                        |
-| ------------------------ | ---------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| **Shops** (`/`)          | Everyone               | Find licensed shops by area or location (map + list), see licence and next free slot                                    |
-| Shop page `/s/:code`     | Everyone               | Green-cracker price list by category, search, plan list (kept only on the phone), walk-in list QR                       |
-| Book `/s/:code/book`     | Customer               | Date tabs, 30-min slots with places left, vehicle; one active slot per number                                           |
-| **My ticket** `/ticket`  | Customer               | QR ticket (visit code + list), bay instructions, directions, safety notice, cancel; works offline                       |
-| **Shop counter** `/shop` | Vendor (owner / staff) | Today's queue (live), scan list QR → pick list by rack → bill → print (58 mm) → mark served, no-show                    |
-|                          | Owner only             | Price list editor (green cert required, banned categories blocked), hours & capacity per day, licence upload, footfall  |
-| **Gate** `/gate`         | Marshal                | Scan ticket → valid / reason, auto-assign holding bay, bay map, today's tickets                                         |
-| **Admin** `/admin`       | Admin                  | Overview metrics, licence approval (private photo), shops (live switch), grounds, categories (ban), team roles, unblock |
+| Area                           | Who                   | What they can do                                                                                                            |
+| ------------------------------ | --------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **Shops** (`/`)                | Everyone              | Find licensed shops by area or location (map + list), licence badge                                                         |
+| Shop page `/s/:code`           | Everyone              | Products with photos, offer prices, low-stock badges, search, categories                                                    |
+| Review `/s/:code/plan`         | Customer              | Place the order (server prices it) and pay the ₹30 fee; or show a walk-in list QR                                           |
+| **My orders** `/orders`        | Customer              | Status, answer out-of-stock / alternative questions, pickup QR (works offline), bill, cancel                                |
+| **Merchant** `/shop`           | Owner, staff          | Orders board: confirm or decline within 3 days                                                                              |
+| Packing `/shop/packing`        | Owner, staff, packer  | Scan each unit's barcode (camera or handheld scanner), out of stock, offer alternative, finish → pack number + sticker QR   |
+| Express Pickup `/shop/counter` | Owner, staff, cashier | Customer QR → pack sticker must match → UPI (YouPI-PG) / card / cash → bill → next; walk-in list QRs too                    |
+| Products, hours, payments      | Owner                 | Photos, barcode, price, offer price + end, stock, sold-out; opening hours; YouPI-PG / card / cash settings; licence; report |
+| **Gate** `/gate`               | Marshal               | Scan a pickup QR → which shop and pack number                                                                               |
+| **Admin** `/admin`             | Platform team         | Orders, fees and refunds, merchant onboarding (shops, licences, payment settings, team roles), categories, blocked numbers  |
 
-Background jobs: no-show sweeper (5 min), licence expiry (hourly), daily stats, slot generator,
-purge (daily OTP clean-up; full purge 90 days after the season).
+Background jobs: order expiry with automatic ₹30 refund (hourly), licence expiry (hourly), daily
+stats, purge (daily OTP clean-up; customers anonymised 90 days after the season, financial records kept).
 
 ## Run it locally
 
@@ -35,20 +42,23 @@ pnpm db:migrate && pnpm db:seed
 pnpm dev                # web http://localhost:5173 · API :7071 · storage emulator :10000
 ```
 
-**Demo mode** is on locally (`DEMO_MODE=true`): use **“Choose a role”** in the header to view the
-app as a customer, shop owner, counter staff, gate marshal or admin — no SMS needed. With demo
-mode off, sign-in is phone + OTP (`123456` while `OTP_DEV_MODE=true`).
+**Demo mode** is on locally (`DEMO_MODE=true`): use **“Choose a role”** in the header. The ₹30 fee
+uses the **mock payment provider** (test page, no real money), and shops without YouPI-PG settings
+get a **simulated counter UPI**. Both are refused when `APP_ENV=prod`.
 
-| Seeded account | Phone           | Notes                        |
-| -------------- | --------------- | ---------------------------- |
-| Admin          | +91 90000 00001 |                              |
-| Shop owner     | +91 90000 00011 | Sri Lakshmi Crackers (SLC01) |
-| Counter staff  | +91 90000 00012 | SLC01                        |
-| Gate marshal   | +91 90000 00051 | Gachibowli Stadium Ground    |
-| Customer       | +91 90000 00099 | Clean account for booking    |
+| Seeded account | Phone                | Notes                                                |
+| -------------- | -------------------- | ---------------------------------------------------- |
+| Admin          | +91 90000 00001      |                                                      |
+| Shop owner     | +91 90000 00011      | Sri Lakshmi Crackers (SLC01)                         |
+| Shop staff     | +91 90000 00012      | SLC01: confirms orders                               |
+| Packer         | +91 90000 00013      | SLC01: barcodes are `891` + item no., e.g. `8910001` |
+| Cashier        | +91 90000 00014      | SLC01: Express Pickup                                |
+| Gate marshal   | +91 90000 00051      | Gachibowli Stadium Ground                            |
+| Customer       | +91 90000 00099      | Clean account                                        |
+| Customers      | +91 90000 00091 / 92 | An order waiting for the shop / a packed order       |
 
-Shop `SAI01` starts with a pending licence: approve it in **Admin → Licences** and it appears on
-the Shops page.
+`pnpm db:seed` prints the packed demo order's pickup and pack-sticker QR texts, which can be typed
+at the counter. Shop `SAI01` starts with a pending licence: approve it in **Admin → Licences**.
 
 ## Checks
 
@@ -61,4 +71,5 @@ pnpm build
 ## Deploy
 
 Azure (Front Door + static website + Functions + Postgres + Key Vault), GitHub Actions with OIDC.
-See [docs/DEPLOY.md](docs/DEPLOY.md). Full technical guide, pilot plan and scale-up roadmap: [docs/TECH_GUIDE.md](docs/TECH_GUIDE.md).
+See [docs/DEPLOY.md](docs/DEPLOY.md). Before switching ordering on in prod, work through
+[docs/SPEC_V3_ORDERS.md](docs/SPEC_V3_ORDERS.md) §10.

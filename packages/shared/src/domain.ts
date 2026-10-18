@@ -133,6 +133,8 @@ export const shopContextSchema = z.object({
   openTo: z.string().nullable(),
   priceVersion: z.number(),
   canEdit: z.boolean(),
+  /** the caller's role here: decides which shop tabs they see */
+  role: z.enum(['shop_owner', 'shop_staff', 'shop_packer', 'shop_cashier', 'admin']),
   cluster: clusterInfoSchema.nullable(),
 });
 export type ShopContext = z.infer<typeof shopContextSchema>;

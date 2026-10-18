@@ -11,6 +11,11 @@
     "TZ": "Asia/Kolkata",
     "DEMO_MODE": "true",
     "COOKIE_SECURE": "false",
-    "UPLOAD_DIR": "../../.uploads"
+    "UPLOAD_DIR": "../../.uploads",
+    "ORDERING_ENABLED": "true",
+    "PAYMENT_PROVIDER": "mock",
+    "MOCK_PAYMENT_SECRET": "dev-only-mock-payment-secret-change-me",
+    "MERCHANT_SECRETS_KEY": "dev-only-merchant-secrets-key-change-me-0000",
+    "PUBLIC_ORIGIN": "http://localhost:5173"
   }
 }

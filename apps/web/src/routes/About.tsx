@@ -1,11 +1,11 @@
 import { useTranslation } from 'react-i18next';
 import { Card, PageTitle } from '../components/ui';
 
-/** One-page explainer for police / fire officers (SPEC §15 runbook). */
+/** One-page explainer for customers, merchants, police and fire officers (SPEC §15 runbook). */
 export function About() {
   const { t } = useTranslation();
-  const facts = ['noOnlineSale', 'noPayments', 'noStock', 'licensed', 'green', 'privacy'] as const;
-  const flow = ['plan', 'slot', 'gate', 'counter'] as const;
+  const facts = ['payShop', 'pickupOnly', 'noCommission', 'licensed', 'green', 'privacy'] as const;
+  const flow = ['order', 'confirm', 'pack', 'pickup'] as const;
   return (
     <div className="space-y-8">
       <PageTitle

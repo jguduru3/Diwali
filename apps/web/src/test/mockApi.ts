@@ -1,5 +1,12 @@
 import { vi } from 'vitest';
-import type { DemoInfo, ItemsResponse, Me, Role, ShopSummary } from '@pataka/shared';
+import {
+  VENDOR_ROLES,
+  type DemoInfo,
+  type ItemsResponse,
+  type Me,
+  type Role,
+  type ShopSummary,
+} from '@pataka/shared';
 
 export const ID = '00000000-0000-4000-8000-000000000001';
 export const SHOP_ID = '00000000-0000-4000-8000-000000000002';
@@ -11,10 +18,9 @@ export function account(role: Role): Me {
     phone: '+919000000011',
     displayName: null,
     role,
-    memberships:
-      role === 'shop_owner' || role === 'shop_staff'
-        ? [{ kind: 'shop', id: SHOP_ID, name: 'Sri Lakshmi Crackers', code: 'SLC01', role }]
-        : [],
+    memberships: (VENDOR_ROLES as readonly Role[]).includes(role)
+      ? [{ kind: 'shop', id: SHOP_ID, name: 'Sri Lakshmi Crackers', code: 'SLC01', role }]
+      : [],
   };
 }
 
@@ -32,7 +38,6 @@ export const shopSummary: ShopSummary = {
   distanceKm: null,
   licence: { licenceNo: 'LE5/1', licenceType: 'LE-5', validTo: '2026-11-30' },
   cluster: null,
-  nextFreeSlot: null,
 };
 
 export const itemsResponse: ItemsResponse = {
@@ -62,6 +67,11 @@ export const itemsResponse: ItemsResponse = {
     greenRef: `R${n}`,
     rackCode: n === 3 ? 'B1' : 'A1',
     imageUrl: null,
+    barcode: `89100${n}`,
+    stockQty: null,
+    offerPricePaise: null,
+    offerEndsAt: null,
+    effectivePricePaise: n * 10000,
     isSoldOut: n === 3,
     isActive: true,
   })),
@@ -105,9 +115,27 @@ export function mockApi(
       if (path === '/shops') return json([shopSummary]);
       if (path === '/console/members') return json({ members: [], shops: [], clusters: [] });
       if (path === '/console/metrics')
-        return json({ from: '', to: '', visibleShops: 1, totalShops: 1, rows: [] });
+        return json({
+          from: '2026-11-01',
+          to: '2026-11-08',
+          visibleShops: 1,
+          totalShops: 1,
+          totals: {
+            ordersPlaced: 0,
+            completed: 0,
+            awaitingMerchant: 0,
+            feesPaise: 0,
+            refundsPaise: 0,
+            netFeesPaise: 0,
+            salesPaise: 0,
+          },
+          rows: [],
+        });
       if (path === '/console/licences') return json([]);
-      if (path === '/visits/current') return json({ visit: null });
+      if (path === '/ordering')
+        return json({ enabled: true, feePaise: 3000, confirmWindowHours: 72 });
+      if (path === '/orders/mine') return json([]);
+      if (path === '/shop/orders') return json([]);
       return json({ error: { code: 'not_found', message: '' } }, 404);
     }),
   );
