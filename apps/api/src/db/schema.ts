@@ -1,9 +1,8 @@
-// Data model (SPEC §6). Visits are queue tokens only: never add item lists,
-// quantities or money columns to visits (G1, G4).
+// Data model (SPEC §6, SPEC_V2 §6). Never add item lists, quantities or sale
+// amounts anywhere (G1, G4). The only money stored is the flat pass fee.
 import { sql } from 'drizzle-orm';
 import {
   boolean,
-  char,
   check,
   date,
   index,
@@ -21,12 +20,25 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
-import { GREEN_CERTS, LICENCE_STATUSES, ROLES, VISIT_STATUSES } from '@pataka/shared';
+import {
+  GREEN_CERTS,
+  LICENCE_STATUSES,
+  PASS_STATUSES,
+  PAYMENT_STATUSES,
+  REFUND_STATUSES,
+  ROLES,
+  SCAN_FLAGS,
+  SCAN_RESULTS,
+} from '@pataka/shared';
 
 export const userRole = pgEnum('user_role', ROLES);
 export const licenceStatus = pgEnum('licence_status', LICENCE_STATUSES);
 export const greenCertType = pgEnum('green_cert_type', GREEN_CERTS);
-export const visitStatus = pgEnum('visit_status', VISIT_STATUSES);
+export const passStatus = pgEnum('pass_status', PASS_STATUSES);
+export const paymentStatus = pgEnum('payment_status', PAYMENT_STATUSES);
+export const refundStatus = pgEnum('refund_status', REFUND_STATUSES);
+export const scanResult = pgEnum('scan_result', SCAN_RESULTS);
+export const scanFlag = pgEnum('scan_flag', SCAN_FLAGS);
 
 const tz = (name: string) => timestamp(name, { withTimezone: true });
 const id = () => uuid('id').primaryKey().defaultRandom();
@@ -45,7 +57,6 @@ export const users = pgTable('users', {
   phoneE164: text('phone_e164').notNull().unique(),
   displayName: text('display_name'),
   role: userRole('role').notNull().default('customer'),
-  noShowStrikes: integer('no_show_strikes').notNull().default(0),
   blockedUntil: tz('blocked_until'),
   /** Bumped on logout / delete / role change; JWTs carrying an older value are rejected. */
   tokenVersion: integer('token_version').notNull().default(0),
@@ -89,7 +100,6 @@ export const clusters = pgTable('clusters', {
   lat: numeric('lat', { precision: 9, scale: 6, mode: 'number' }),
   lng: numeric('lng', { precision: 9, scale: 6, mode: 'number' }),
   address: text('address'),
-  bayCount: integer('bay_count').notNull().default(20),
   gateNotes: text('gate_notes'),
   isActive: boolean('is_active').notNull().default(true),
   ...stamps,
@@ -110,8 +120,6 @@ export const shops = pgTable(
     photoUrl: text('photo_url'),
     openFrom: time('open_from'),
     openTo: time('open_to'),
-    slotMinutes: integer('slot_minutes').notNull().default(30),
-    defaultCapacityPerSlot: integer('default_capacity_per_slot').notNull().default(10),
     isLive: boolean('is_live').notNull().default(false),
     ...stamps,
   },
@@ -247,60 +255,130 @@ export const shopPriceVersions = pgTable('shop_price_versions', {
   ...stamps,
 });
 
-// ---- Slots and visits (queue tokens — no items, no amounts) ----
+// ---- Express Pass (SPEC_V2 §4–6) ----
 
-export const slots = pgTable(
-  'slots',
+/** One flat-fee pass per customer. Only a hash of the QR secret is stored. */
+export const passes = pgTable(
+  'passes',
   {
     id: id(),
-    shopId: uuid('shop_id')
-      .notNull()
-      .references(() => shops.id),
-    startsAt: tz('starts_at').notNull(),
-    endsAt: tz('ends_at').notNull(),
-    capacity: integer('capacity').notNull(),
-    booked: integer('booked').notNull().default(0),
-    ...stamps,
-  },
-  (t) => [
-    uniqueIndex('slots_shop_starts').on(t.shopId, t.startsAt),
-    check('slots_booked_le_capacity', sql`${t.booked} <= ${t.capacity}`),
-    check('slots_booked_nonneg', sql`${t.booked} >= 0`),
-  ],
-);
-
-export const visits = pgTable(
-  'visits',
-  {
-    id: id(),
-    code: char('code', { length: 6 }).notNull().unique(),
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id),
-    shopId: uuid('shop_id')
-      .notNull()
-      .references(() => shops.id),
-    slotId: uuid('slot_id')
-      .notNull()
-      .references(() => slots.id),
-    status: visitStatus('status').notNull().default('booked'),
-    partyVehicle: text('party_vehicle'),
-    bayNo: integer('bay_no'),
-    arrivedAt: tz('arrived_at'),
-    servedAt: tz('served_at'),
-    cancelledAt: tz('cancelled_at'),
-    noShowAt: tz('no_show_at'),
+    /** public reference shown to people, e.g. DXP-K7Q2-M9AB */
+    ref: text('ref').notNull().unique(),
+    status: passStatus('status').notNull().default('pending_payment'),
+    /** sha256 hex of the current QR secret; null until first shown */
+    secretHash: text('secret_hash').unique(),
+    secretRotatedAt: tz('secret_rotated_at'),
+    feePaise: integer('fee_paise').notNull(),
+    paidAt: tz('paid_at'),
+    validFrom: tz('valid_from'),
+    validTo: tz('valid_to'),
+    revokedAt: tz('revoked_at'),
+    revokedBy: uuid('revoked_by').references(() => users.id),
+    revokeReason: text('revoke_reason'),
     ...stamps,
   },
   (t) => [
-    uniqueIndex('one_active_visit')
+    uniqueIndex('one_open_pass')
       .on(t.userId)
-      .where(sql`status in ('booked','arrived')`),
-    index('visits_slot_idx').on(t.slotId),
-    index('visits_shop_idx').on(t.shopId),
+      .where(sql`status in ('pending_payment','active')`),
+    check('passes_fee_positive', sql`${t.feePaise} > 0`),
   ],
 );
 
+/** A payment attempt for a pass with the provider. */
+export const payments = pgTable(
+  'payments',
+  {
+    id: id(),
+    passId: uuid('pass_id')
+      .notNull()
+      .references(() => passes.id),
+    provider: text('provider').notNull(),
+    /** provider's order / checkout id */
+    checkoutId: text('checkout_id').notNull(),
+    checkoutUrl: text('checkout_url').notNull(),
+    providerPaymentId: text('provider_payment_id'),
+    status: paymentStatus('status').notNull().default('created'),
+    amountPaise: integer('amount_paise').notNull(),
+    idempotencyKey: text('idempotency_key').notNull().unique(),
+    capturedAt: tz('captured_at'),
+    failedAt: tz('failed_at'),
+    ...stamps,
+  },
+  (t) => [
+    uniqueIndex('payments_provider_checkout').on(t.provider, t.checkoutId),
+    index('payments_pass_idx').on(t.passId),
+    check('payments_amount_positive', sql`${t.amountPaise} > 0`),
+  ],
+);
+
+/** Every provider event, once. Replays hit the unique index and are ignored. */
+export const paymentEvents = pgTable(
+  'payment_events',
+  {
+    id: id(),
+    provider: text('provider').notNull(),
+    eventId: text('event_id').notNull(),
+    type: text('type').notNull(),
+    payloadSha256: text('payload_sha256').notNull(),
+    outcome: text('outcome').notNull(),
+    receivedAt: tz('received_at').notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('payment_events_provider_event').on(t.provider, t.eventId)],
+);
+
+export const refunds = pgTable(
+  'refunds',
+  {
+    id: id(),
+    paymentId: uuid('payment_id')
+      .notNull()
+      .references(() => payments.id),
+    amountPaise: integer('amount_paise').notNull(),
+    status: refundStatus('status').notNull().default('pending'),
+    providerRefundId: text('provider_refund_id'),
+    idempotencyKey: text('idempotency_key').notNull().unique(),
+    reason: text('reason').notNull(),
+    requestedBy: uuid('requested_by').references(() => users.id),
+    processedAt: tz('processed_at'),
+    ...stamps,
+  },
+  (t) => [
+    // At most one refund per payment that has not failed.
+    uniqueIndex('one_live_refund')
+      .on(t.paymentId)
+      .where(sql`status in ('pending','processed')`),
+    check('refunds_amount_positive', sql`${t.amountPaise} > 0`),
+  ],
+);
+
+/** Every verification attempt at a shop counter or a ground gate. No money (G4). */
+export const passScans = pgTable(
+  'pass_scans',
+  {
+    id: id(),
+    passId: uuid('pass_id').references(() => passes.id),
+    shopId: uuid('shop_id').references(() => shops.id),
+    clusterId: uuid('cluster_id').references(() => clusters.id),
+    scannedBy: uuid('scanned_by')
+      .notNull()
+      .references(() => users.id),
+    result: scanResult('result').notNull(),
+    flag: scanFlag('flag'),
+    at: tz('at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('pass_scans_pass_at').on(t.passId, t.at),
+    index('pass_scans_shop_at').on(t.shopId, t.at),
+    index('pass_scans_cluster_at').on(t.clusterId, t.at),
+    check('pass_scans_one_place', sql`(${t.shopId} is not null) <> (${t.clusterId} is not null)`),
+  ],
+);
+
+/** Daily verification counts per shop; survives the end-of-season scan purge. */
 export const dailyShopStats = pgTable(
   'daily_shop_stats',
   {
@@ -308,11 +386,9 @@ export const dailyShopStats = pgTable(
       .notNull()
       .references(() => shops.id),
     day: date('day').notNull(),
-    booked: integer('booked').notNull().default(0),
-    arrived: integer('arrived').notNull().default(0),
-    served: integer('served').notNull().default(0),
-    noShow: integer('no_show').notNull().default(0),
-    cancelled: integer('cancelled').notNull().default(0),
+    scans: integer('scans').notNull().default(0),
+    uniquePasses: integer('unique_passes').notNull().default(0),
+    flagged: integer('flagged').notNull().default(0),
     ...stamps,
   },
   (t) => [primaryKey({ columns: [t.shopId, t.day] })],
@@ -334,7 +410,5 @@ export const visibleShops = pgView('visible_shops', {
   photoUrl: text('photo_url'),
   openFrom: time('open_from'),
   openTo: time('open_to'),
-  slotMinutes: integer('slot_minutes').notNull(),
-  defaultCapacityPerSlot: integer('default_capacity_per_slot').notNull(),
   isLive: boolean('is_live').notNull(),
 }).existing();

@@ -1,7 +1,20 @@
 // Admin console. Routes live under /api/console because the Functions host
 // reserves /api/admin for itself.
 import type { HttpRequest, HttpResponseInit } from '@azure/functions';
-import { and, asc, desc, eq, gt, inArray, isNotNull, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNotNull,
+  lt,
+  sql,
+  type AnyColumn,
+  type SQL,
+} from 'drizzle-orm';
 import {
   addDays,
   categoryInputSchema,
@@ -9,14 +22,24 @@ import {
   clusterInputSchema,
   clusterPatchSchema,
   dateSchema,
+  effectivePassStatus,
+  formatPassRef,
   istDate,
+  istDayRange,
   licenceDecisionSchema,
   licenceStatusSchema,
+  normalizeIndianPhone,
+  passActionSchema,
+  passHolderMask,
+  passStatusSchema,
   shopInputSchema,
   shopPatchSchema,
   type AdminCluster,
+  type AdminPass,
   type AdminShop,
   type BlockedUser,
+  type FlaggedScan,
+  type Metrics,
   type MetricsRow,
 } from '@pataka/shared';
 import { getDb, type Db } from '../db/client';
@@ -24,6 +47,10 @@ import {
   categories,
   clusters,
   items,
+  passes,
+  passScans,
+  payments,
+  refunds,
   shopLicences,
   shopPriceVersions,
   shops,
@@ -36,9 +63,13 @@ import { requireRole } from '../lib/auth';
 import { categoryView } from '../lib/catalogue';
 import { HttpError } from '../lib/errors';
 import { http, json, parseBody, parseQuery } from '../lib/http';
+import { refundPass, revokePass } from '../lib/passes';
+import { activeProvider } from '../lib/payments';
+import { mockId, mockProvider, signMockEvent } from '../lib/payments/mock';
+import { clusterView } from '../lib/places';
+import { licenceView } from '../lib/reports';
 import { fileStore } from '../lib/storage';
-import { clusterView } from '../lib/visits';
-import { footfall, licenceView } from '../lib/reports';
+import { processWebhook } from './payments';
 
 const admin = (db: Db, req: HttpRequest) => requireRole(db, req, ['admin']);
 
@@ -54,7 +85,6 @@ async function listClusters(db: Db): Promise<AdminCluster[]> {
     .orderBy(asc(clusters.name));
   return rows.map(({ c, shopCount }) => ({
     ...clusterView(c)!,
-    bayCount: c.bayCount,
     isActive: c.isActive,
     shopCount,
   }));
@@ -142,7 +172,6 @@ async function listShops(db: Db, onlyId?: string): Promise<AdminShop[]> {
       clusterName,
       openFrom: s.openFrom?.slice(0, 5) ?? null,
       openTo: s.openTo?.slice(0, 5) ?? null,
-      defaultCapacityPerSlot: s.defaultCapacityPerSlot,
       isLive: s.isLive,
       visible,
       licenceStatus: best?.status ?? null,
@@ -337,11 +366,10 @@ export async function blockedUsersHandler(req: HttpRequest): Promise<HttpRespons
     .select()
     .from(users)
     .where(and(isNotNull(users.blockedUntil), gt(users.blockedUntil, sql`now()`)))
-    .orderBy(desc(users.noShowStrikes));
+    .orderBy(desc(users.blockedUntil));
   const body: BlockedUser[] = rows.map((u) => ({
     userId: u.id,
     phone: u.phoneE164,
-    noShowStrikes: u.noShowStrikes,
     blockedUntil: u.blockedUntil?.toISOString() ?? null,
   }));
   return json(body);
@@ -353,7 +381,7 @@ export async function unblockHandler(req: HttpRequest): Promise<HttpResponseInit
   const id = requireUuidParam(req, 'id');
   const [row] = await db
     .update(users)
-    .set({ blockedUntil: null, noShowStrikes: 0 })
+    .set({ blockedUntil: null })
     .where(eq(users.id, id))
     .returning({ id: users.id });
   if (!row) throw new HttpError(404, 'user_not_found', 'No such user');
@@ -361,43 +389,239 @@ export async function unblockHandler(req: HttpRequest): Promise<HttpResponseInit
   return json({ ok: true });
 }
 
+// ---- Express Passes ----
+
+async function adminPassRows(db: Db, where: SQL | undefined, limit = 100): Promise<AdminPass[]> {
+  const rows = await db
+    .select({
+      p: passes,
+      phone: users.phoneE164,
+      scans: sql<number>`(select count(*)::int from pass_scans s where s.pass_id = ${passes.id})`,
+      flagged: sql<number>`(select count(*)::int from pass_scans s where s.pass_id = ${passes.id} and s.flag is not null)`,
+    })
+    .from(passes)
+    .innerJoin(users, eq(users.id, passes.userId))
+    .where(where)
+    .orderBy(desc(passes.createdAt))
+    .limit(limit);
+  if (!rows.length) return [];
+  const ids = rows.map((r) => r.p.id);
+  const pays = await db
+    .select()
+    .from(payments)
+    .where(inArray(payments.passId, ids))
+    .orderBy(desc(payments.createdAt));
+  const refs = pays.length
+    ? await db
+        .select()
+        .from(refunds)
+        .where(
+          inArray(
+            refunds.paymentId,
+            pays.map((p) => p.id),
+          ),
+        )
+        .orderBy(desc(refunds.createdAt))
+    : [];
+  return rows.map(({ p, phone, scans, flagged }) => {
+    const mine = pays.filter((x) => x.passId === p.id);
+    const pay = mine.find((x) => x.status === 'captured') ?? mine[0];
+    const refund = pay ? refs.find((r) => r.paymentId === pay.id) : undefined;
+    return {
+      id: p.id,
+      ref: formatPassRef(p.ref),
+      status: effectivePassStatus(p),
+      maskedPhone: passHolderMask(phone),
+      feePaise: p.feePaise,
+      validTo: p.validTo?.toISOString() ?? null,
+      createdAt: p.createdAt.toISOString(),
+      paidAt: p.paidAt?.toISOString() ?? null,
+      scans,
+      flaggedScans: flagged,
+      payment: pay
+        ? { provider: pay.provider, providerPaymentId: pay.providerPaymentId, status: pay.status }
+        : null,
+      refund: refund ? { status: refund.status, amountPaise: refund.amountPaise } : null,
+    };
+  });
+}
+
+/** GET /api/console/passes?q=&status= — q is a pass reference or a full phone number. */
+export async function passesListHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const db = getDb();
+  await admin(db, req);
+  const q = req.query.get('q')?.trim() ?? '';
+  const status = req.query.get('status');
+  const filters: SQL[] = [];
+  if (q) {
+    const ref = q.toUpperCase().replace(/^DXP-?/, '').replace(/[\s-]/g, '');
+    const phone = normalizeIndianPhone(q);
+    filters.push(phone ? eq(users.phoneE164, phone) : eq(passes.ref, ref));
+  }
+  if (status) {
+    const s = passStatusSchema.parse(status);
+    if (s === 'expired') filters.push(eq(passes.status, 'active'), lt(passes.validTo, sql`now()`));
+    else if (s === 'active') {
+      filters.push(eq(passes.status, 'active'), gt(passes.validTo, sql`now()`));
+    } else filters.push(eq(passes.status, s));
+  }
+  return json(await adminPassRows(db, filters.length ? and(...filters) : undefined));
+}
+
+/** POST /api/console/passes/{id}/revoke {reason} — stops verification at once. */
+export async function passRevokeHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const db = getDb();
+  const user = await admin(db, req);
+  const id = requireUuidParam(req, 'id');
+  const { reason } = await parseBody(req, passActionSchema);
+  await revokePass(db, id, user.id, reason);
+  return json((await adminPassRows(db, eq(passes.id, id)))[0]);
+}
+
+/** POST /api/console/passes/{id}/refund {reason} — full refund of the pass fee. */
+export async function passRefundHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const db = getDb();
+  const user = await admin(db, req);
+  const id = requireUuidParam(req, 'id');
+  const { reason } = await parseBody(req, passActionSchema);
+  const provider = activeProvider();
+  const refund = await refundPass(db, id, user.id, reason, provider);
+  // The mock provider settles refunds at once through the signed webhook path.
+  if (provider.name === mockProvider.name) {
+    const signed = signMockEvent({
+      id: mockId('mock_ev'),
+      type: 'refund.processed',
+      refundId: refund.providerRefundId,
+      paymentId: refund.providerPaymentId,
+      amountPaise: refund.amountPaise,
+    });
+    await processWebhook(db, provider.name, signed.rawBody, signed.headers);
+  }
+  return json((await adminPassRows(db, eq(passes.id, id)))[0]);
+}
+
+/** GET /api/console/scans/flagged — flagged checks in the last 7 days. */
+export async function flaggedScansHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const db = getDb();
+  await admin(db, req);
+  const rows = await db
+    .select({ s: passScans, ref: passes.ref, shopName: shops.name, clusterName: clusters.name })
+    .from(passScans)
+    .leftJoin(passes, eq(passes.id, passScans.passId))
+    .leftJoin(shops, eq(shops.id, passScans.shopId))
+    .leftJoin(clusters, eq(clusters.id, passScans.clusterId))
+    .where(and(isNotNull(passScans.flag), gt(passScans.at, sql`now() - interval '7 days'`)))
+    .orderBy(desc(passScans.at))
+    .limit(200);
+  const body: FlaggedScan[] = rows.map((r) => ({
+    id: r.s.id,
+    at: r.s.at.toISOString(),
+    result: r.s.result,
+    flag: r.s.flag,
+    passRef: r.ref ? formatPassRef(r.ref) : null,
+    passId: r.s.passId,
+    place: r.shopName ?? r.clusterName ?? '—',
+  }));
+  return json(body);
+}
+
 // ---- Metrics ----
 
-/** GET /api/console/metrics?from=&to= — per shop/day footfall, no-show rate, arrive→serve median. */
+/**
+ * GET /api/console/metrics?from=&to= — passes issued, pass fees and refunds
+ * (platform fees only, never sale amounts — G4), checks and participating shops.
+ */
 export async function metricsHandler(req: HttpRequest): Promise<HttpResponseInit> {
   const db = getDb();
   await admin(db, req);
-  const to = parseQuery(req.query.get('to') ?? addDays(istDate(), 7), dateSchema);
-  const from = parseQuery(req.query.get('from') ?? addDays(istDate(), -7), dateSchema);
-  const allShops = await db
-    .select({ id: shops.id, code: shops.shortCode, name: shops.name })
-    .from(shops);
-  const rows = await footfall(
-    db,
-    allShops.map((s) => s.id),
-    from,
-    to,
-  );
-  const body: MetricsRow[] = rows.map((r) => {
-    const s = allShops.find((x) => x.id === r.shopId)!;
-    const closed = r.served + r.noShow;
+  const to = parseQuery(req.query.get('to') ?? istDate(), dateSchema);
+  const from = parseQuery(req.query.get('from') ?? addDays(istDate(), -14), dateSchema);
+  const range = { from: istDayRange(from).from, to: istDayRange(to).to };
+  const day = (col: SQL | AnyColumn) =>
+    sql<string>`to_char((${col} at time zone 'Asia/Kolkata')::date, 'YYYY-MM-DD')`;
+
+  const issued = await db
+    .select({
+      day: day(payments.capturedAt),
+      n: sql<number>`count(*)::int`,
+      paise: sql<number>`coalesce(sum(${payments.amountPaise}), 0)::int`,
+    })
+    .from(payments)
+    .where(
+      and(
+        eq(payments.status, 'captured'),
+        gte(payments.capturedAt, range.from),
+        lt(payments.capturedAt, range.to),
+      ),
+    )
+    .groupBy(sql`1`);
+  const refunded = await db
+    .select({
+      day: day(refunds.processedAt),
+      paise: sql<number>`coalesce(sum(${refunds.amountPaise}), 0)::int`,
+    })
+    .from(refunds)
+    .where(
+      and(
+        eq(refunds.status, 'processed'),
+        gte(refunds.processedAt, range.from),
+        lt(refunds.processedAt, range.to),
+      ),
+    )
+    .groupBy(sql`1`);
+  const checks = await db
+    .select({
+      day: day(passScans.at),
+      n: sql<number>`count(*) filter (where ${passScans.result} = 'valid')::int`,
+      flagged: sql<number>`count(*) filter (where ${passScans.flag} is not null)::int`,
+      shops: sql<number>`count(distinct ${passScans.shopId})::int`,
+    })
+    .from(passScans)
+    .where(and(gte(passScans.at, range.from), lt(passScans.at, range.to)))
+    .groupBy(sql`1`);
+
+  const days = new Set([...issued, ...refunded, ...checks].map((r) => r.day));
+  const rows: MetricsRow[] = [...days].sort().map((d) => {
+    const i = issued.find((r) => r.day === d);
+    const c = checks.find((r) => r.day === d);
     return {
-      shopCode: s.code,
-      shopName: s.name,
-      day: r.day,
-      booked: r.booked,
-      arrived: r.arrived,
-      served: r.served,
-      noShow: r.noShow,
-      cancelled: r.cancelled,
-      noShowRate: closed ? Math.round((r.noShow / closed) * 1000) / 10 : null,
-      medianArriveToServeMin: r.medianArriveToServeMin,
+      day: d,
+      passesIssued: i?.n ?? 0,
+      feesPaise: i?.paise ?? 0,
+      refundsPaise: refunded.find((r) => r.day === d)?.paise ?? 0,
+      scans: c?.n ?? 0,
+      flagged: c?.flagged ?? 0,
+      shopsScanning: c?.shops ?? 0,
     };
   });
+  const sum = (k: keyof MetricsRow) => rows.reduce((n, r) => n + (r[k] as number), 0);
+  const [{ active } = { active: 0 }] = await db
+    .select({ active: sql<number>`count(*)::int` })
+    .from(passes)
+    .where(and(eq(passes.status, 'active'), gt(passes.validTo, sql`now()`)));
   const [{ visible } = { visible: 0 }] = await db
     .select({ visible: sql<number>`count(*)::int` })
     .from(visibleShops);
-  return json({ from, to, visibleShops: visible, totalShops: allShops.length, rows: body });
+  const [{ total } = { total: 0 }] = await db
+    .select({ total: sql<number>`count(*)::int` })
+    .from(shops);
+  const body: Metrics = {
+    from,
+    to,
+    visibleShops: visible,
+    totalShops: total,
+    totals: {
+      activePasses: active,
+      passesIssued: sum('passesIssued'),
+      feesPaise: sum('feesPaise'),
+      refundsPaise: sum('refundsPaise'),
+      netPaise: sum('feesPaise') - sum('refundsPaise'),
+      scans: sum('scans'),
+      flagged: sum('flagged'),
+    },
+    rows,
+  };
+  return json(body);
 }
 
 http('consoleClusters', ['GET'], 'console/clusters', clustersListHandler);
@@ -416,3 +640,7 @@ http('consoleLicenceReject', ['POST'], 'console/licences/{id}/reject', licenceRe
 http('consoleBlocked', ['GET'], 'console/users/blocked', blockedUsersHandler);
 http('consoleUnblock', ['POST'], 'console/users/{id}/unblock', unblockHandler);
 http('consoleMetrics', ['GET'], 'console/metrics', metricsHandler);
+http('consolePasses', ['GET'], 'console/passes', passesListHandler);
+http('consolePassRevoke', ['POST'], 'console/passes/{id}/revoke', passRevokeHandler);
+http('consolePassRefund', ['POST'], 'console/passes/{id}/refund', passRefundHandler);
+http('consoleFlaggedScans', ['GET'], 'console/scans/flagged', flaggedScansHandler);

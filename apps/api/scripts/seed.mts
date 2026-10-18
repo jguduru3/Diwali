@@ -283,7 +283,7 @@ const shopDefs = [
   },
 ];
 
-await upsertUser(phone(1), 'admin', 'Festive Diwali team');
+await upsertUser(phone(1), 'admin', 'Diwali Express Pickup team');
 
 for (const s of shopDefs) {
   const [shop] = await db
@@ -479,7 +479,7 @@ const demoCodes = await db
   );
 
 await closeDb();
-console.log(`Seeded Festive Diwali demo data.
+console.log(`Seeded Diwali Express Pickup demo data.
   Shops: SLC01, BAL01, ANA01, DEM01 (live) · SAI01 (licence pending)
   Accounts (OTP 123456 in dev, or one tap in demo mode):
     admin        ${phone(1)}

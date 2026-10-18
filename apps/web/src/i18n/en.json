@@ -1,6 +1,6 @@
 {
   "app": {
-    "name": "Festive Diwali",
+    "name": "Diwali Express Pickup",
     "city": "Hyderabad · Licensed shops",
     "tagline": "Licensed green-cracker shops near you. Plan your list, pick a pickup slot, and pay at the shop."
   },
@@ -132,7 +132,7 @@
     "hideQr": "Hide list QR",
     "walkInTitle": "Walk-in list",
     "walkInBody": "No slot? Show this at the counter to bill your list quickly.",
-    "finalNote": "Festive Diwali never takes payment. You pay the shop directly at the counter.",
+    "finalNote": "Diwali Express Pickup never takes payment. You pay the shop directly at the counter.",
     "emptyTitle": "Your plan list is empty",
     "emptyBody": "Add a few crackers from the price list to start your plan.",
     "browse": "Browse prices"
@@ -185,7 +185,7 @@
     "sendCode": "Send code",
     "codeSent": "We sent a 6-digit code to {{phone}}.",
     "codeLabel": "6-digit code",
-    "consent": "I agree that Festive Diwali uses my phone number only to hold my pickup slot and stop slot misuse. It is deleted 90 days after the Diwali season ends, and I can delete it any time from My account.",
+    "consent": "I agree that Diwali Express Pickup uses my phone number only to hold my pickup slot and stop slot misuse. It is deleted 90 days after the Diwali season ends, and I can delete it any time from My account.",
     "verify": "Verify and continue",
     "changeNumber": "Use a different number"
   },
@@ -245,10 +245,10 @@
     "manual": "Ticket code or QR text",
     "manualPlaceholder": "Type the 6-letter code or paste QR text",
     "privacy": "The list is read on this device only. Only the ticket code is sent when you mark it served.",
-    "badQr": "This isn't a Festive Diwali list QR.",
+    "badQr": "This isn't a Diwali Express Pickup list QR.",
     "otherShop": "This list is for another shop ({{code}}).",
     "decode": {
-      "bad_prefix": "This isn't a Festive Diwali list QR.",
+      "bad_prefix": "This isn't a Diwali Express Pickup list QR.",
       "bad_format": "The QR looks damaged. Ask the customer to brighten their screen and try again.",
       "bad_visit_code": "The ticket code in this QR isn't valid.",
       "bad_shop_code": "The shop code in this QR isn't valid.",
@@ -272,7 +272,7 @@
     "total": "Total",
     "notAvailable": "Not available",
     "priceChanged": "Price changed",
-    "payHere": "Pay at this counter. Festive Diwali does not handle payments.",
+    "payHere": "Pay at this counter. Diwali Express Pickup does not handle payments.",
     "print": "Print bill",
     "servedDone": "Served",
     "servedNote": "Marked served. Hand over the bag after payment.",
@@ -382,7 +382,7 @@
     "noneToday": "No tickets for today yet."
   },
   "admin": {
-    "eyebrow": "Festive Diwali team",
+    "eyebrow": "Diwali Express Pickup team",
     "title": "Admin console",
     "subtitle": "Onboard shops, check licences and keep the queues healthy.",
     "sections": "Admin sections",
@@ -474,7 +474,7 @@
   },
   "about": {
     "eyebrow": "For customers, police and fire officers",
-    "title": "How Festive Diwali works",
+    "title": "How Diwali Express Pickup works",
     "subtitle": "A shop finder, price list and drive-through queue for licensed cracker shops in Hyderabad. All buying, packing, billing and payment happen at the licensed counter.",
     "facts": {
       "noOnlineSale": {
@@ -487,7 +487,7 @@
       },
       "noStock": {
         "title": "No stock, no carrying",
-        "body": "Festive Diwali never stores, carries or sends crackers anywhere."
+        "body": "Diwali Express Pickup never stores, carries or sends crackers anywhere."
       },
       "licensed": {
         "title": "Licensed shops only",
@@ -521,11 +521,11 @@
         "body": "The shop scans your list, bills it, and you pay there."
       }
     },
-    "legal": "Supreme Court orders (Arjun Gopal v. Union of India, 2018 and 2021) bar online sale of crackers. Festive Diwali is designed so that nothing is ever bought online: the sale is made only at the licensed counter."
+    "legal": "Supreme Court orders (Arjun Gopal v. Union of India, 2018 and 2021) bar online sale of crackers. Diwali Express Pickup is designed so that nothing is ever bought online: the sale is made only at the licensed counter."
   },
   "forbidden": {
     "title": "No access",
-    "body": "Your account type ({{role}}) cannot open {{area}}. Ask the Festive Diwali team if you need access."
+    "body": "Your account type ({{role}}) cannot open {{area}}. Ask the Diwali Express Pickup team if you need access."
   },
   "errors": {
     "generic": "Something went wrong. Please try again.",

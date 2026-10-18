@@ -32,8 +32,8 @@ function mapPgError(err: unknown): HttpError | null {
   if (e.code === '23514' && e.message?.includes('banned')) {
     return new HttpError(422, 'category_banned', 'This category is banned and cannot be used');
   }
-  if (e.code === '23505' && e.constraint === 'one_active_visit') {
-    return new HttpError(409, 'active_visit_exists', 'You already have an active pickup slot');
+  if (e.code === '23505' && e.constraint === 'one_open_pass') {
+    return new HttpError(409, 'pass_exists', 'You already have an Express Pass');
   }
   if (e.code === '23505') return new HttpError(409, 'duplicate', 'That already exists');
   if (e.code === '23514') return new HttpError(422, 'invalid_value', 'A value is not allowed');

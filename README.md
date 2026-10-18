@@ -1,4 +1,4 @@
-# Festive Diwali
+# Diwali Express Pickup
 
 Shop finder, green-cracker price lists and a drive-through pickup queue for licensed cracker
 shops in Hyderabad. Customers plan a list on their phone, book a 30-minute pickup slot and get a

@@ -43,6 +43,28 @@ export const env = {
   seasonEndInstant(): Date {
     return istInstant(this.seasonEndDate(), '23:59');
   },
+  /**
+   * Express Pass feature flag (SPEC_V2 §9). Off unless set; Bicep keeps it off
+   * in prod until the Telangana compliance review signs off.
+   */
+  passesEnabled(): boolean {
+    return process.env.PASSES_ENABLED === 'true';
+  },
+  /** Rolling pass validity in hours; unset = valid until the season ends. */
+  passValidHours(): number | null {
+    const n = Number(process.env.PASS_VALID_HOURS);
+    return Number.isInteger(n) && n > 0 ? n : null;
+  },
+  /** Payment provider adapter name. The mock provider is refused in prod. */
+  paymentProvider(): string {
+    const name = process.env.PAYMENT_PROVIDER || 'mock';
+    if (name === 'mock' && this.isProd()) throw new Error('The mock payment provider is not allowed in prod');
+    return name;
+  },
+  mockPaymentSecret(): string {
+    if (this.isProd()) throw new Error('The mock payment provider is not allowed in prod');
+    return process.env.MOCK_PAYMENT_SECRET || 'dev-only-mock-payment-secret';
+  },
   storageAccountName(): string | undefined {
     return process.env.STORAGE_ACCOUNT_NAME || undefined;
   },

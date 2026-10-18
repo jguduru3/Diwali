@@ -7,7 +7,7 @@ process.env.OTP_DEV_MODE = 'true';
 process.env.COOKIE_SECURE = 'false';
 process.env.DEMO_MODE = 'false';
 process.env.SEASON_END = '2026-11-20';
-process.env.UPLOAD_DIR = `${process.env.TMPDIR ?? process.env.TEMP ?? '/tmp'}/festive-diwali-test-uploads`;
+process.env.UPLOAD_DIR = `${process.env.TMPDIR ?? process.env.TEMP ?? '/tmp'}/diwali-express-test-uploads`;
 
 const { closeDb, getPool } = await import('../src/db/client');
 

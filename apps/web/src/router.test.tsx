@@ -29,7 +29,7 @@ describe('public routes', () => {
     mockApi(null);
     renderAt('/');
     expect(await screen.findByRole('link', { name: 'Sri Lakshmi Crackers' })).toBeInTheDocument();
-    expect(screen.getAllByText('Festive Diwali').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Diwali Express Pickup').length).toBeGreaterThan(0);
     expect(screen.getByRole('link', { name: 'Sign in' })).toBeInTheDocument();
   });
 
@@ -43,7 +43,7 @@ describe('public routes', () => {
     mockApi(null);
     renderAt('/about');
     fireEvent.click(await screen.findByRole('button', { name: 'Change language' }));
-    expect(await screen.findByText('ఫెస్టివ్ దీపావళి ఎలా పనిచేస్తుంది')).toBeInTheDocument();
+    expect(await screen.findByText('దీపావళి ఎక్స్‌ప్రెస్ పికప్ ఎలా పనిచేస్తుంది')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'భాష మార్చండి' }));
   });
 

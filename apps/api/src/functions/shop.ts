@@ -1,44 +1,45 @@
 // Shop app (vendor). Owners edit the price list, hours and licence; counter
-// staff toggle sold-out and serve visitors. The counter decodes the customer's
-// list QR on the device: no endpoint here accepts a list (G1, G2).
+// staff toggle sold-out and check Express Passes. The counter decodes the
+// customer's list QR on the device: no endpoint here accepts a list (G1, G2).
 import type { HttpRequest, HttpResponseInit } from '@azure/functions';
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, lt, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import {
   addDays,
   dateSchema,
+  formatPassRef,
   istDate,
+  istDayRange,
   itemInputSchema,
   itemPatchSchema,
   licenceSubmitSchema,
   shopSettingsSchema,
-  slotCapacitySchema,
   soldOutSchema,
-  daySlotsSchema,
-  visitCodeSchema,
+  verifyPassSchema,
   type ShopContext,
-  type ShopToday,
+  type ShopScans,
 } from '@pataka/shared';
 import { getDb, type Db } from '../db/client';
 import {
   categories,
   clusters,
   items,
+  passes,
+  passScans,
   shopLicences,
   shops,
-  slots,
   visibleShops,
-  visits,
 } from '../db/schema';
 import { requireShop, requireUuidParam, type ShopRow } from '../lib/access';
 import { audit } from '../lib/audit';
 import { bumpPriceVersion, categoryView, getPriceVersion, itemView } from '../lib/catalogue';
 import { HttpError } from '../lib/errors';
 import { http, json, parseBody, parseQuery } from '../lib/http';
-import { applyDaySlots, bookableDates, daySlots, ensureSlots, slotView } from '../lib/slots';
 import { fileStore, licenceBlobPath, sniffImage } from '../lib/storage';
 import { footfall, licenceView } from '../lib/reports';
-import { addStrike, clusterView, queueVisitView, releaseSlot } from '../lib/visits';
+import { verifyPass } from '../lib/passes';
+import { clusterView } from '../lib/places';
+import { rateLimit } from '../lib/rateLimit';
 
 // ---- Context ----
 
@@ -58,8 +59,6 @@ async function shopContext(db: Db, shop: ShopRow, canEdit: boolean): Promise<Sho
     visible: !!visible,
     openFrom: shop.openFrom?.slice(0, 5) ?? null,
     openTo: shop.openTo?.slice(0, 5) ?? null,
-    slotMinutes: shop.slotMinutes,
-    defaultCapacityPerSlot: shop.defaultCapacityPerSlot,
     priceVersion: await getPriceVersion(db, shop.id),
     canEdit,
     cluster: clusterView(cluster ?? null),
@@ -177,9 +176,9 @@ async function updateItem(
   });
 }
 
-// ---- Hours and slots ----
+// ---- Hours ----
 
-/** PUT /api/shop/settings — default hours/capacity, re-applied to upcoming days. */
+/** PUT /api/shop/settings — opening hours (shown as open/closed on the shop list). */
 export async function shopSettingsHandler(req: HttpRequest): Promise<HttpResponseInit> {
   const db = getDb();
   const { user, shop } = await requireShop(db, req, { ownerOnly: true });
@@ -187,195 +186,75 @@ export async function shopSettingsHandler(req: HttpRequest): Promise<HttpRespons
   if (input.openFrom >= input.openTo) {
     throw new HttpError(400, 'invalid_body', 'Opening time must be before closing time');
   }
-  await db.transaction(async (tx) => {
-    await tx.update(shops).set(input).where(eq(shops.id, shop.id));
-    // Today is left alone (visitors may already be on their way); later days follow the new hours.
-    for (const date of bookableDates().slice(1)) {
-      await applyDaySlots(
-        tx,
-        shop,
-        date,
-        input.openFrom,
-        input.openTo,
-        input.defaultCapacityPerSlot,
-      );
-    }
-    await audit(tx, {
-      actorUserId: user.id,
-      action: 'shop.settings',
-      entity: 'shop',
-      entityId: shop.id,
-      meta: input,
-    });
+  await db.update(shops).set(input).where(eq(shops.id, shop.id));
+  await audit(db, {
+    actorUserId: user.id,
+    action: 'shop.settings',
+    entity: 'shop',
+    entityId: shop.id,
+    meta: input,
   });
   const [fresh] = await db.select().from(shops).where(eq(shops.id, shop.id));
   return json(await shopContext(db, fresh!, true));
 }
 
-/** GET /api/shop/slots?date= */
-export async function shopSlotsGetHandler(req: HttpRequest): Promise<HttpResponseInit> {
-  const db = getDb();
-  const { shop } = await requireShop(db, req);
-  const date = parseQuery(req.query.get('date') ?? istDate(), dateSchema);
-  await ensureSlots(db, shop, date);
-  const rows = await daySlots(db, shop.id, date);
-  return json({ date, dates: bookableDates(), slots: rows.map((r) => slotView(r)) });
-}
+// ---- Express Pass verification ----
 
-/** PUT /api/shop/slots {date, openFrom, openTo, capacity} — keeps booked slots. */
-export async function shopSlotsPutHandler(req: HttpRequest): Promise<HttpResponseInit> {
+/** POST /api/shop/passes/verify {qr} — owners and counter staff of a listed shop. */
+export async function shopVerifyHandler(req: HttpRequest): Promise<HttpResponseInit> {
   const db = getDb();
-  const { user, shop } = await requireShop(db, req, { ownerOnly: true });
-  const input = await parseBody(req, daySlotsSchema);
-  if (input.openFrom >= input.openTo) {
-    throw new HttpError(400, 'invalid_body', 'Opening time must be before closing time');
+  const { user, shop } = await requireShop(db, req);
+  const { qr } = await parseBody(req, verifyPassSchema);
+  const [visible] = await db
+    .select({ id: visibleShops.id })
+    .from(visibleShops)
+    .where(eq(visibleShops.id, shop.id));
+  if (!visible) {
+    throw new HttpError(
+      403,
+      'shop_not_listed',
+      'Only listed shops with a verified licence can check passes',
+    );
   }
-  if (input.date < istDate()) throw new HttpError(400, 'past_date', 'That day is over');
-  await db.transaction(async (tx) => {
-    await applyDaySlots(tx, shop, input.date, input.openFrom, input.openTo, input.capacity);
-    await audit(tx, {
-      actorUserId: user.id,
-      action: 'slots.day',
-      entity: 'shop',
-      entityId: shop.id,
-      meta: input,
-    });
-  });
-  const rows = await daySlots(db, shop.id, input.date);
-  return json({ date: input.date, dates: bookableDates(), slots: rows.map((r) => slotView(r)) });
+  await rateLimit(db, `verify:${user.id}`, 120, 60);
+  return json(await verifyPass(db, qr, { shopId: shop.id }, user.id));
 }
 
-/** PATCH /api/shop/slots/{id} {capacity} — never below what is already booked. */
-export async function shopSlotCapacityHandler(req: HttpRequest): Promise<HttpResponseInit> {
-  const db = getDb();
-  const { user, shop } = await requireShop(db, req, { ownerOnly: true });
-  const id = requireUuidParam(req, 'id');
-  const { capacity } = await parseBody(req, slotCapacitySchema);
-  const [row] = await db
-    .update(slots)
-    .set({ capacity: sql`greatest(${capacity}, ${slots.booked})` })
-    .where(and(eq(slots.id, id), eq(slots.shopId, shop.id)))
-    .returning();
-  if (!row) throw new HttpError(404, 'slot_not_found', 'No such slot');
-  await audit(db, {
-    actorUserId: user.id,
-    action: 'slots.capacity',
-    entity: 'slot',
-    entityId: id,
-    meta: { capacity },
-  });
-  return json(slotView(row));
-}
-
-// ---- Today's visitors ----
-
-/** GET /api/shop/visits/today?date= — slot-wise list; the screen polls every 10 s. */
-export async function shopTodayHandler(req: HttpRequest): Promise<HttpResponseInit> {
+/** GET /api/shop/passes/scans?date= — this shop's checks for the day; polled every 10 s. */
+export async function shopScansHandler(req: HttpRequest): Promise<HttpResponseInit> {
   const db = getDb();
   const { shop } = await requireShop(db, req);
   const date = parseQuery(req.query.get('date') ?? istDate(), dateSchema);
-  await ensureSlots(db, shop, date);
-  const slotRows = await daySlots(db, shop.id, date);
-  const visitRows = slotRows.length
-    ? await db
-        .select({ v: visits, s: slots })
-        .from(visits)
-        .innerJoin(slots, eq(slots.id, visits.slotId))
-        .where(
-          inArray(
-            visits.slotId,
-            slotRows.map((s) => s.id),
-          ),
-        )
-        .orderBy(asc(visits.createdAt))
-    : [];
-  const body: ShopToday = {
+  const { from, to } = istDayRange(date);
+  const rows = await db
+    .select({ s: passScans, ref: passes.ref })
+    .from(passScans)
+    .leftJoin(passes, eq(passes.id, passScans.passId))
+    .where(and(eq(passScans.shopId, shop.id), gte(passScans.at, from), lt(passScans.at, to)))
+    .orderBy(desc(passScans.at))
+    .limit(300);
+  const body: ShopScans = {
     date,
-    slots: slotRows.map((s) => ({
-      ...slotView(s),
-      visits: visitRows.filter((r) => r.s.id === s.id).map((r) => queueVisitView({ ...r, shop })),
+    scans: rows.map((r) => ({
+      id: r.s.id,
+      at: r.s.at.toISOString(),
+      result: r.s.result,
+      flag: r.s.flag,
+      passRef: r.ref ? formatPassRef(r.ref) : null,
+      place: shop.name,
     })),
   };
   return json(body);
 }
 
-async function loadShopVisit(db: Db, shopId: string, codeParam: string | undefined) {
-  const code = visitCodeSchema.parse(codeParam);
-  const [row] = await db
-    .select({ v: visits, s: slots })
-    .from(visits)
-    .innerJoin(slots, eq(slots.id, visits.slotId))
-    .where(eq(visits.code, code));
-  if (!row) throw new HttpError(404, 'visit_not_found', 'No ticket with this code');
-  if (row.v.shopId !== shopId) {
-    throw new HttpError(409, 'wrong_shop', 'This ticket is for a different shop');
-  }
-  return row;
-}
-
-/** POST /api/shop/visits/{code}/serve — booked/arrived → served. Code only, no items. */
-export async function shopServeHandler(req: HttpRequest): Promise<HttpResponseInit> {
-  const db = getDb();
-  const { user, shop } = await requireShop(db, req);
-  const row = await loadShopVisit(db, shop.id, req.params.code);
-  if (row.v.status === 'served') return json(queueVisitView({ ...row, shop })); // idempotent (offline replay)
-  if (row.v.status !== 'booked' && row.v.status !== 'arrived') {
-    throw new HttpError(409, 'not_servable', `This ticket is ${row.v.status.replace('_', '-')}`);
-  }
-  const [v] = await db
-    .update(visits)
-    .set({ status: 'served', servedAt: sql`now()` })
-    .where(eq(visits.id, row.v.id))
-    .returning();
-  await audit(db, {
-    actorUserId: user.id,
-    action: 'visit.serve',
-    entity: 'visit',
-    entityId: row.v.id,
-  });
-  return json(queueVisitView({ v: v!, s: row.s, shop }));
-}
-
-/** POST /api/shop/visits/{code}/no-show — frees the place and adds a strike. */
-export async function shopNoShowHandler(req: HttpRequest): Promise<HttpResponseInit> {
-  const db = getDb();
-  const { user, shop } = await requireShop(db, req);
-  const row = await loadShopVisit(db, shop.id, req.params.code);
-  if (row.v.status !== 'booked' && row.v.status !== 'arrived') {
-    throw new HttpError(409, 'not_open', `This ticket is ${row.v.status.replace('_', '-')}`);
-  }
-  const updated = await db.transaction(async (tx) => {
-    const [v] = await tx
-      .update(visits)
-      .set({ status: 'no_show', noShowAt: sql`now()` })
-      .where(and(eq(visits.id, row.v.id), inArray(visits.status, ['booked', 'arrived'])))
-      .returning();
-    if (!v) throw new HttpError(409, 'not_open', 'This ticket changed, refresh');
-    await releaseSlot(tx, row.v.slotId);
-    await addStrike(tx, row.v.userId);
-    await audit(tx, {
-      actorUserId: user.id,
-      action: 'visit.no_show',
-      entity: 'visit',
-      entityId: row.v.id,
-    });
-    return v;
-  });
-  return json(queueVisitView({ v: updated, s: row.s, shop }));
-}
-
-/** GET /api/shop/stats?from=&to= — footfall per day. */
+/** GET /api/shop/stats?from=&to= — pass checks per day (footfall only, G4). */
 export async function shopStatsHandler(req: HttpRequest): Promise<HttpResponseInit> {
   const db = getDb();
   const { shop } = await requireShop(db, req, { ownerOnly: true });
-  const to = parseQuery(req.query.get('to') ?? addDays(istDate(), 7), dateSchema);
+  const to = parseQuery(req.query.get('to') ?? istDate(), dateSchema);
   const from = parseQuery(req.query.get('from') ?? addDays(istDate(), -14), dateSchema);
   const rows = await footfall(db, [shop.id], from, to);
-  return json({
-    from,
-    to,
-    rows: rows.map(({ shopId: _s, medianArriveToServeMin: _m, ...r }) => r),
-  });
+  return json({ from, to, rows: rows.map(({ shopId: _s, ...r }) => r) });
 }
 
 // ---- Licence ----
@@ -431,12 +310,8 @@ http('shopItemCreate', ['POST'], 'shop/items/new', shopItemCreateHandler);
 http('shopItemPatch', ['PATCH'], 'shop/items/{id}', shopItemPatchHandler);
 http('shopItemSoldOut', ['PATCH'], 'shop/items/{id}/sold-out', shopItemSoldOutHandler);
 http('shopSettings', ['PUT'], 'shop/settings', shopSettingsHandler);
-http('shopSlotsGet', ['GET'], 'shop/slots', shopSlotsGetHandler);
-http('shopSlotsPut', ['PUT'], 'shop/slots/day', shopSlotsPutHandler);
-http('shopSlotCapacity', ['PATCH'], 'shop/slots/{id}', shopSlotCapacityHandler);
-http('shopToday', ['GET'], 'shop/visits/today', shopTodayHandler);
-http('shopServe', ['POST'], 'shop/visits/{code}/serve', shopServeHandler);
-http('shopNoShow', ['POST'], 'shop/visits/{code}/no-show', shopNoShowHandler);
+http('shopVerify', ['POST'], 'shop/passes/verify', shopVerifyHandler);
+http('shopScans', ['GET'], 'shop/passes/scans', shopScansHandler);
 http('shopStats', ['GET'], 'shop/stats', shopStatsHandler);
 http('shopLicenceList', ['GET'], 'shop/licence', shopLicenceListHandler);
 http('shopLicenceSubmit', ['POST'], 'shop/licence/new', shopLicenceSubmitHandler);

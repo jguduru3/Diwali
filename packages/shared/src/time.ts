@@ -27,28 +27,6 @@ export function istDayRange(date: string): { from: Date; to: Date } {
   return { from: istInstant(date, '00:00'), to: istInstant(addDays(date, 1), '00:00') };
 }
 
-export type SlotWindow = { startsAt: Date; endsAt: Date };
-
-/**
- * Back-to-back slots between opening and closing time on an IST date.
- * A slot that would run past closing time is not created.
- */
-export function slotWindows(
-  date: string,
-  openFrom: string,
-  openTo: string,
-  slotMinutes: number,
-): SlotWindow[] {
-  if (slotMinutes < 5) throw new Error('slotMinutes too small');
-  const start = istInstant(date, openFrom).getTime();
-  const end = istInstant(date, openTo).getTime();
-  const out: SlotWindow[] = [];
-  for (let t = start; t + slotMinutes * 60_000 <= end; t += slotMinutes * 60_000) {
-    out.push({ startsAt: new Date(t), endsAt: new Date(t + slotMinutes * 60_000) });
-  }
-  return out;
-}
-
 /** Great-circle distance in km (SPEC §3: Haversine from browser location or area centroid). */
 export function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
   const R = 6371;

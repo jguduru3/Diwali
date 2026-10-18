@@ -6,50 +6,15 @@ import {
   consents,
   dailyShopStats,
   otpRequests,
+  passScans,
   rateLimits,
   shopLicences,
   shops,
-  slots,
   users,
-  visibleShops,
-  visits,
 } from '../db/schema';
 import { audit } from './audit';
 import { env } from './env';
 import { footfall } from './reports';
-import { bookableDates, ensureSlots } from './slots';
-import { addStrike, releaseSlot } from './visits';
-
-/** Booked visits not checked in by slot end + 15 min become no-shows (strike, place freed). */
-export const NO_SHOW_GRACE_MINUTES = 15;
-
-export async function sweepNoShows(db: Db, now = new Date()): Promise<number> {
-  const cutoff = new Date(now.getTime() - NO_SHOW_GRACE_MINUTES * 60_000);
-  const due = await db
-    .select({ id: visits.id, slotId: visits.slotId, userId: visits.userId })
-    .from(visits)
-    .innerJoin(slots, eq(slots.id, visits.slotId))
-    .where(and(eq(visits.status, 'booked'), lt(slots.endsAt, cutoff)));
-  for (const v of due) {
-    await db.transaction(async (tx) => {
-      const [hit] = await tx
-        .update(visits)
-        .set({ status: 'no_show', noShowAt: now })
-        .where(and(eq(visits.id, v.id), eq(visits.status, 'booked')))
-        .returning({ id: visits.id });
-      if (!hit) return;
-      await releaseSlot(tx, v.slotId);
-      await addStrike(tx, v.userId);
-      await audit(tx, {
-        actorUserId: null,
-        action: 'job.no_show',
-        entity: 'visit',
-        entityId: v.id,
-      });
-    });
-  }
-  return due.length;
-}
 
 /** Licences past valid_to become expired, which drops the shop from visible_shops. */
 export async function expireLicences(db: Db, now = new Date()): Promise<number> {
@@ -78,13 +43,7 @@ export async function snapshotDailyStats(db: Db, now = new Date()): Promise<numb
     day,
   );
   for (const r of rows) {
-    const values = {
-      booked: r.booked,
-      arrived: r.arrived,
-      served: r.served,
-      noShow: r.noShow,
-      cancelled: r.cancelled,
-    };
+    const values = { scans: r.scans, uniquePasses: r.uniquePasses, flagged: r.flagged };
     await db
       .insert(dailyShopStats)
       .values({ shopId: r.shopId, day: r.day, ...values })
@@ -93,28 +52,20 @@ export async function snapshotDailyStats(db: Db, now = new Date()): Promise<numb
   return rows.length;
 }
 
-/** Keeps slots generated for every listed shop across the booking horizon. */
-export async function generateUpcomingSlots(db: Db, now = new Date()): Promise<number> {
-  const listed = await db.select().from(visibleShops);
-  for (const shop of listed) {
-    for (const date of bookableDates(now)) await ensureSlots(db, shop, date);
-  }
-  return listed.length;
-}
-
 export type PurgeReport = {
   phase: 'daily' | 'season';
   otpRequests: number;
   rateLimits: number;
-  visits: number;
+  passScans: number;
   customersAnonymised: number;
   dryRun: boolean;
 };
 
 /**
  * G9 data minimisation. Daily: drop OTP and rate-limit rows older than a day.
- * From SEASON_END + 90 days: delete all visits, anonymise customers, withdraw consents.
- * Staff accounts and daily stats are kept.
+ * From SEASON_END + 90 days: delete pass scans, anonymise customers, withdraw consents.
+ * Staff accounts, daily stats and financial records (passes, payments, refunds,
+ * payment events — linked only to the anonymised user id) are kept.
  */
 export async function purge(db: Db, now = new Date(), dryRun = false): Promise<PurgeReport> {
   const dayAgo = new Date(now.getTime() - 86_400_000);
@@ -140,7 +91,9 @@ export async function purge(db: Db, now = new Date(), dryRun = false): Promise<P
         .from(rateLimits)
         .where(rlOld),
     ),
-    visits: seasonOver ? await count(db.select({ n: sql<number>`count(*)::int` }).from(visits)) : 0,
+    passScans: seasonOver
+      ? await count(db.select({ n: sql<number>`count(*)::int` }).from(passScans))
+      : 0,
     customersAnonymised: seasonOver
       ? await count(
           db
@@ -157,7 +110,7 @@ export async function purge(db: Db, now = new Date(), dryRun = false): Promise<P
     await tx.delete(otpRequests).where(seasonOver ? undefined : otpOld);
     await tx.delete(rateLimits).where(rlOld);
     if (seasonOver) {
-      await tx.delete(visits);
+      await tx.delete(passScans);
       const anon = await tx
         .update(users)
         .set({

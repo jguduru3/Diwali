@@ -122,5 +122,5 @@ jobs:
             echo "waiting for $URL ($i)"; sleep 20
           done
           curl -fsS "$URL/api/health"
-          curl -fsS "$URL/" | grep -q "Festive Diwali"
+          curl -fsS "$URL/" | grep -q "Diwali Express Pickup"
           echo "Live: $URL" >> "$GITHUB_STEP_SUMMARY"

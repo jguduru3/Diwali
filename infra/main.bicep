@@ -1,4 +1,4 @@
-// Festive Diwali — Azure infrastructure (SPEC §11).
+// Diwali Express Pickup — Azure infrastructure (SPEC §11).
 // Deploy into an existing resource group:
 //   az deployment group create -g rg-festive-<env> -f infra/main.bicep -p infra/params.<env>.json -p <secure params>
 targetScope = 'resourceGroup'
@@ -34,7 +34,7 @@ var isProd = env == 'prod'
 var effectiveDemo = isProd ? false : demoMode
 var effectiveOtpDev = isProd ? false : otpDevMode
 var suffix = uniqueString(resourceGroup().id)
-var tags = { app: 'festive-diwali', env: env }
+var tags = { app: 'diwali-express-pickup', env: env }
 
 // ---------------- Monitoring ----------------
 

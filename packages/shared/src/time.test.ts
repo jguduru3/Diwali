@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, haversineKm, istDate, istInstant, istTime, slotWindows } from './time';
+import { addDays, haversineKm, istDate, istInstant, istTime } from './time';
 
 describe('IST helpers', () => {
   it('converts wall-clock IST to UTC instants', () => {
@@ -14,23 +14,6 @@ describe('IST helpers', () => {
 
   it('adds days across month ends', () => {
     expect(addDays('2026-10-31', 1)).toBe('2026-11-01');
-  });
-});
-
-describe('slotWindows', () => {
-  it('creates back-to-back 30 min slots inside opening hours', () => {
-    const slots = slotWindows('2026-11-07', '10:00', '12:00', 30);
-    expect(slots).toHaveLength(4);
-    expect(istTime(slots[0]!.startsAt)).toBe('10:00');
-    expect(istTime(slots[3]!.endsAt)).toBe('12:00');
-  });
-
-  it('drops a partial last slot', () => {
-    expect(slotWindows('2026-11-07', '10:00', '11:45', 30)).toHaveLength(3);
-  });
-
-  it('returns nothing when closing is before opening', () => {
-    expect(slotWindows('2026-11-07', '18:00', '10:00', 30)).toEqual([]);
   });
 });
 

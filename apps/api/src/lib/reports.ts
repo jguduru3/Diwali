@@ -1,43 +1,37 @@
-import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import { istDayRange, type FootfallRow, type Licence } from '@pataka/shared';
 import type { Db } from '../db/client';
-import { dailyShopStats, shopLicences, slots, visits } from '../db/schema';
+import { dailyShopStats, passScans, shopLicences } from '../db/schema';
 import type { ShopRow } from './access';
 
-/** Footfall per shop and day (no money — G4). */
-
+/** Valid pass checks per shop and day (footfall only, no money — G4). */
 export async function footfall(
   db: Db,
   shopIds: string[],
   from: string,
   to: string,
-): Promise<(FootfallRow & { shopId: string; medianArriveToServeMin: number | null })[]> {
+): Promise<(FootfallRow & { shopId: string })[]> {
   if (!shopIds.length) return [];
   const range = { from: istDayRange(from).from, to: istDayRange(to).to };
   const live = await db
     .select({
-      shopId: visits.shopId,
-      day: sql<string>`to_char((${slots.startsAt} at time zone 'Asia/Kolkata')::date, 'YYYY-MM-DD')`,
-      booked: sql<number>`count(*)::int`,
-      arrived: sql<number>`count(*) filter (where ${visits.arrivedAt} is not null)::int`,
-      served: sql<number>`count(*) filter (where ${visits.status} = 'served')::int`,
-      noShow: sql<number>`count(*) filter (where ${visits.status} = 'no_show')::int`,
-      cancelled: sql<number>`count(*) filter (where ${visits.status} = 'cancelled')::int`,
-      median: sql<
-        number | null
-      >`percentile_cont(0.5) within group (order by extract(epoch from ${visits.servedAt} - ${visits.arrivedAt}) / 60)
-        filter (where ${visits.servedAt} is not null and ${visits.arrivedAt} is not null)`,
+      shopId: sql<string>`${passScans.shopId}`,
+      day: sql<string>`to_char((${passScans.at} at time zone 'Asia/Kolkata')::date, 'YYYY-MM-DD')`,
+      scans: sql<number>`count(*)::int`,
+      uniquePasses: sql<number>`count(distinct ${passScans.passId})::int`,
+      flagged: sql<number>`count(*) filter (where ${passScans.flag} is not null)::int`,
     })
-    .from(visits)
-    .innerJoin(slots, eq(slots.id, visits.slotId))
+    .from(passScans)
     .where(
       and(
-        inArray(visits.shopId, shopIds),
-        gte(slots.startsAt, range.from),
-        lt(slots.startsAt, range.to),
+        isNotNull(passScans.shopId),
+        inArray(passScans.shopId, shopIds),
+        eq(passScans.result, 'valid'),
+        gte(passScans.at, range.from),
+        lt(passScans.at, range.to),
       ),
     )
-    .groupBy(visits.shopId, sql`2`);
+    .groupBy(passScans.shopId, sql`2`);
   // Stored rows survive the end-of-season purge; live rows win where both exist.
   const stored = await db
     .select()
@@ -49,34 +43,17 @@ export async function footfall(
         sql`${dailyShopStats.day} <= ${to}`,
       ),
     );
-  const out = new Map<
-    string,
-    FootfallRow & { shopId: string; medianArriveToServeMin: number | null }
-  >();
+  const out = new Map<string, FootfallRow & { shopId: string }>();
   for (const s of stored) {
     out.set(`${s.shopId}:${s.day}`, {
       shopId: s.shopId,
       day: s.day,
-      booked: s.booked,
-      arrived: s.arrived,
-      served: s.served,
-      noShow: s.noShow,
-      cancelled: s.cancelled,
-      medianArriveToServeMin: null,
+      scans: s.scans,
+      uniquePasses: s.uniquePasses,
+      flagged: s.flagged,
     });
   }
-  for (const l of live) {
-    out.set(`${l.shopId}:${l.day}`, {
-      shopId: l.shopId,
-      day: l.day,
-      booked: l.booked,
-      arrived: l.arrived,
-      served: l.served,
-      noShow: l.noShow,
-      cancelled: l.cancelled,
-      medianArriveToServeMin: l.median == null ? null : Math.round(Number(l.median) * 10) / 10,
-    });
-  }
+  for (const l of live) out.set(`${l.shopId}:${l.day}`, l);
   return [...out.values()].sort((a, b) => a.day.localeCompare(b.day));
 }
 

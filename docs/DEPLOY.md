@@ -1,4 +1,4 @@
-# Deploying Festive Diwali to Azure
+# Deploying Diwali Express Pickup to Azure
 
 Everything is created by [`infra/main.bicep`](../infra/main.bicep) and deployed by
 [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml):
@@ -24,7 +24,7 @@ with required reviewers).
 2. **GitHub → Azure identity (OIDC, no stored secret)**
 
    ```bash
-   az ad app create --display-name festive-diwali-deploy
+   az ad app create --display-name diwali-express-pickup-deploy
    az ad sp create --id <appId>
    # trust GitHub for each environment
    az ad app federated-credential create --id <appId> --parameters '{

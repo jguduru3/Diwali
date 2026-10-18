@@ -29,6 +29,20 @@
       "when": 1792047673291,
       "tag": "0003_item_price_version",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792317538057,
+      "tag": "0004_remove_slots_visits",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792317544834,
+      "tag": "0005_express_pass",
+      "breakpoints": true
     }
   ]
 }
