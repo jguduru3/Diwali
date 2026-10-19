@@ -16,6 +16,7 @@ import {
   itemPatchSchema,
   licenceSubmitSchema,
   lineRefSchema,
+  weighSchema,
   merchantPaymentSettingsSchema,
   packScanSchema,
   proposeAlternateSchema,
@@ -67,6 +68,7 @@ import {
   staffOrderSummaries,
   staffOrderView,
   startPacking,
+  weighLine,
 } from '../lib/orders';
 import { clusterView } from '../lib/places';
 import { rateLimit } from '../lib/rateLimit';
@@ -333,6 +335,13 @@ export async function shopPickHandler(req: HttpRequest): Promise<HttpResponseIni
   return json(await pickByHand(getDb(), shop.id, user.id, requireUuidParam(req, 'id'), lineId));
 }
 
+/** POST /api/shop/orders/{id}/weigh {lineId, grams} — scale reading for a weighed line. */
+export async function shopWeighHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const { user, shop } = await packer(req);
+  const input = await parseBody(req, weighSchema);
+  return json(await weighLine(getDb(), shop.id, user.id, requireUuidParam(req, 'id'), input));
+}
+
 /** POST /api/shop/orders/{id}/out-of-stock {lineId} — asks the customer. */
 export async function shopOutOfStockHandler(req: HttpRequest): Promise<HttpResponseInit> {
   const { user, shop } = await packer(req);
@@ -369,7 +378,7 @@ export async function counterOpenHandler(req: HttpRequest): Promise<HttpResponse
   const { user, shop } = await cashier(req);
   const { qr } = await parseBody(req, qrInputSchema);
   await rateLimit(db, `counter:${user.id}`, 120, 60);
-  return json(await openByCustomerQr(db, shop, qr));
+  return json(await openByCustomerQr(db, shop, user.id, qr));
 }
 
 /** POST /api/shop/counter/{id}/pack {qr} — the pack sticker must match. */
@@ -537,6 +546,7 @@ http('shopReject', ['POST'], 'shop/orders/{id}/reject', shopRejectHandler);
 http('shopStartPacking', ['POST'], 'shop/orders/{id}/start-packing', shopStartPackingHandler);
 http('shopScan', ['POST'], 'shop/orders/{id}/scan', shopScanHandler);
 http('shopPick', ['POST'], 'shop/orders/{id}/pick', shopPickHandler);
+http('shopWeigh', ['POST'], 'shop/orders/{id}/weigh', shopWeighHandler);
 http('shopOutOfStock', ['POST'], 'shop/orders/{id}/out-of-stock', shopOutOfStockHandler);
 http('shopAlternate', ['POST'], 'shop/orders/{id}/alternate', shopAlternateHandler);
 http('shopFinish', ['POST'], 'shop/orders/{id}/finish', shopFinishHandler);

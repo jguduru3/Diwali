@@ -22,6 +22,7 @@ import { PlanPage } from './routes/customer/PlanPage';
 import { ShopPage } from './routes/customer/ShopPage';
 import { Gate } from './routes/gate/Gate';
 import { Login } from './routes/Login';
+import { MerchantStart } from './routes/MerchantStart';
 import { NotFound } from './routes/NotFound';
 import { Counter } from './routes/shop/Counter';
 import { Hours } from './routes/shop/Hours';
@@ -47,6 +48,7 @@ export const routes: RouteObject[] = [
       { path: '/pay/mock/:checkoutId', element: guard(<MockPayPage />) },
       { path: '/about', element: <About /> },
       { path: '/login', element: <Login /> },
+      { path: '/merchant', element: <MerchantStart /> },
       { path: '/account', element: guard(<Account />) },
       {
         path: '/shop',

@@ -134,12 +134,18 @@ export async function shopDetailHandler(req: HttpRequest): Promise<HttpResponseI
   return json(body);
 }
 
-/** GET /api/shops/{code}/items — ETag is the price version. */
+/**
+ * Bump when the shape of an item in the response changes, so browsers holding
+ * a cached list (same price version) refetch instead of getting a 304.
+ */
+export const ITEMS_SHAPE_VERSION = 2;
+
+/** GET /api/shops/{code}/items — ETag is the response shape + price version. */
 export async function shopItemsHandler(req: HttpRequest): Promise<HttpResponseInit> {
   const db = getDb();
   const shop = await findVisibleShop(db, req.params.code);
   const priceVersion = await getPriceVersion(db, shop.id);
-  const etag = `"v${priceVersion}"`;
+  const etag = `"s${ITEMS_SHAPE_VERSION}-v${priceVersion}"`;
   const cache = { ETag: etag, 'Cache-Control': 'public, max-age=60' };
   if (req.headers.get('if-none-match') === etag) return { status: 304, headers: cache };
 

@@ -1,5 +1,22 @@
 # Changelog
 
+## Installable apps, notifications, production hardening (2026-10-19)
+
+- **Two installable PWAs** for Android and iPhone from one codebase: **Diwali Express** for customers and **Diwali Express Merchant** for shop staff, marshals and admins (own manifest, id, teal icon, shortcuts to Orders/Packing/Counter, `/merchant` start page that sends each role to its screen). PNG icon sets incl. maskable and Apple touch icons (`scripts/make-icons.mjs`).
+- Custom service worker (`injectManifest`): precache, offline pages, offline price lists and orders, push. Install bar (Android prompt, iOS Add-to-Home-Screen hint), update bar, offline banner, error boundary.
+- **Web push**: new paid order → shop owner/staff; customer answered → packers; confirmed, needs your answer, packed (pack no.), paid (bill no.), rejected, expired → customer. Queued in `push_outbox` inside the order transaction, sent after the request, retried by a minute timer. No personal data in payloads; en/te text. Turn on in My account / merchant orders screen. Subscriptions removed on sign-out, delete-me and season purge (migration 0007).
+- **Production config check**: in prod the API refuses to start with missing secrets, demo/OTP dev switches on, or ordering on with the mock fee provider. Ordering stays off in prod until a fee gateway is added.
+- Infra: VAPID keys via Bicep + Key Vault + deploy workflow; manifests uploaded as `application/manifest+json` and purged from Front Door.
+- Tests: 135 unit (config check, push text), 73 integration (10 new for push). Checked in the browser on a production build: merchant/customer manifest switching, update flow, install bar, offline banner.
+
+## Selling by weight (2026-10-19)
+
+- Items can be sold **per pack**, **per kg** (own ₹/kg) or as a **mix box of any items at a fixed ₹/kg**; prices and offers per kg, stock in grams (migration 0006).
+- Customers add weights in 250 g steps and tick the items for a mix box; the server prices grams from the catalogue.
+- Packers record the scale reading: within ±10 % it is packed as weighed; outside, the customer accepts, asks for a repack, or removes it. Bills show grams and ₹/kg.
+- Fixed while testing: the item list's ETag now includes a response-shape version, so browsers holding a cached list refetch after the item shape changes (they got a 304 with the old shape). The counter now requires the customer's QR to be scanned before the pack can be matched or paid for. Service-worker rules for the removed visit endpoints replaced.
+- Tests: 121 unit, 63 integration (7 new for weight, 2 regressions); flow walked through in the browser.
+
 ## Diwali Express Pickup — multi-merchant pickup orders (2026-10-18)
 
 SPEC_V3 (`docs/SPEC_V3_ORDERS.md`). Renamed from Festive Diwali; guardrails rewritten in CLAUDE.md.

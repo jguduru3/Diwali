@@ -18,7 +18,7 @@ const { closeDb, getPool } = await import('../src/db/client');
 beforeEach(async () => {
   process.env.DEMO_MODE = 'false';
   await getPool().query(`truncate
-    audit_log, rate_limits, otp_requests, consents, daily_shop_stats,
+    audit_log, rate_limits, otp_requests, consents, daily_shop_stats, push_outbox, push_subscriptions,
     counter_payment_events, counter_payments, fee_payment_events, fee_refunds, fee_payments,
     order_events, order_lines, orders, merchant_payment_settings, shop_counters,
     items, shop_price_versions, categories, shop_licences, shop_members, cluster_marshals,

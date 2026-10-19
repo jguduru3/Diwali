@@ -1,17 +1,19 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { PLATFORM_FEE_PAISE, encodePlan, formatPaise } from '@pataka/shared';
+import { PLATFORM_FEE_PAISE, encodePlan, formatGrams, formatPaise } from '@pataka/shared';
 import { useMe } from '../../auth/useAuth';
 import { ErrorText } from '../../components/ErrorText';
 import { QrCode } from '../../components/QrCode';
 import { SafetyNotice } from '../../components/SafetyNotice';
 import { QtyStepper } from '../../components/QtyStepper';
+import { WeightStepper } from '../../components/WeightStepper';
 import { Badge, Button, ButtonLink, Card, EmptyState, Notice, Spinner } from '../../components/ui';
 import { itemName } from '../../lib/format';
 import { usePlan } from '../../lib/planList';
 import { useOrderingInfo, usePlaceOrder, useShop, useShopItems } from '../../lib/queries';
-import { usePlanDetails } from './usePlanDetails';
+import { useWeights } from '../../lib/weightList';
+import { usePlanDetails, useWeightDetails } from './usePlanDetails';
 
 /**
  * Review the order. Placing it sends item ids and quantities only — the server
@@ -24,7 +26,13 @@ export function PlanPage() {
   const shop = useShop(code);
   const items = useShopItems(code);
   const plan = usePlan(code, items.data?.priceVersion);
-  const { rows, total, unavailable } = usePlanDetails(plan.lines, items.data);
+  const packs = usePlanDetails(plan.lines, items.data);
+  const weights = useWeights(code);
+  const weighed = useWeightDetails(weights.lines, items.data);
+  const rows = packs.rows;
+  const total = packs.total + weighed.total;
+  const unavailable = packs.unavailable + weighed.unavailable;
+  const count = plan.count + weights.lines.length;
   const [walkIn, setWalkIn] = useState(false);
   const { data: me } = useMe();
   const ordering = useOrderingInfo();
@@ -32,12 +40,22 @@ export function PlanPage() {
   const fee = formatPaise(ordering.data?.feePaise ?? PLATFORM_FEE_PAISE);
 
   const placeOrder = () => {
-    const lines = rows.filter((r) => r.item).map((r) => ({ itemId: r.item!.id, qty: r.qty }));
+    const lines = [
+      ...rows.filter((r) => r.item).map((r) => ({ itemId: r.item!.id, qty: r.qty })),
+      ...weighed.rows
+        .filter((r) => r.item)
+        .map((r) =>
+          r.item!.saleUnit === 'mix_kg'
+            ? { itemId: r.itemId, grams: r.grams, mixItemIds: r.mixItemIds ?? [] }
+            : { itemId: r.itemId, grams: r.grams },
+        ),
+    ];
     place.mutate(
       { shopCode: code, lines },
       {
         onSuccess: (order) => {
           plan.clear();
+          weights.clear();
           if (order.fee.checkout) navigate(order.fee.checkout.url);
           else navigate(`/orders/${order.id}`);
         },
@@ -46,7 +64,7 @@ export function PlanPage() {
   };
 
   if (items.isPending) return <Spinner label={t('common.loading')} />;
-  if (!plan.lines.length) {
+  if (!count) {
     return (
       <EmptyState
         icon="🪔"
@@ -96,9 +114,48 @@ export function PlanPage() {
               </p>
             </Card>
           ))}
+          {weighed.rows.map((r) => (
+            <Card as="li" key={r.itemId} className="p-4">
+              <div className="flex items-center gap-4">
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold">
+                    {r.item ? itemName(r.item) : t('plan.unknownItem', { no: r.itemNo })}
+                  </p>
+                  <p className="text-sm text-muted">
+                    {r.item && `${formatPaise(r.item.effectivePricePaise)}${t('weight.perKg')}`}
+                  </p>
+                  {r.item?.isSoldOut && (
+                    <Badge tone="danger" className="mt-1">
+                      {t('shopPage.soldOut')}
+                    </Badge>
+                  )}
+                </div>
+                <WeightStepper
+                  grams={r.grams}
+                  name={r.item ? itemName(r.item) : `#${r.itemNo}`}
+                  onChange={(g) => weights.set({ ...r, grams: g })}
+                />
+                <p className="w-20 text-right font-display text-lg font-semibold">
+                  {formatPaise(r.lineTotal)}
+                </p>
+              </div>
+              {r.mix.length > 0 && (
+                <p className="mt-2 text-sm text-muted">
+                  {t('weight.mixOf', { items: r.mix.map((m) => itemName(m)).join(', ') })}
+                </p>
+              )}
+            </Card>
+          ))}
         </ul>
+        {weighed.rows.length > 0 && <Notice className="mt-4">{t('weight.weighedNote')}</Notice>}
         <div className="mt-4 flex justify-between">
-          <Button variant="ghost" onClick={plan.clear}>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              plan.clear();
+              weights.clear();
+            }}
+          >
             {t('plan.clear')}
           </Button>
           <ButtonLink to={`/s/${code}`} variant="secondary">
@@ -110,7 +167,7 @@ export function PlanPage() {
       <aside className="space-y-4 lg:sticky lg:top-40 lg:self-start">
         <Card className="p-6">
           <div className="flex items-baseline justify-between">
-            <p className="text-muted">{t('plan.items', { count: plan.count })}</p>
+            <p className="text-muted">{t('plan.items', { count })}</p>
             <p className="font-display text-3xl font-semibold">{formatPaise(total)}</p>
           </div>
           <p className="mt-1 text-right text-xs text-muted">{t('plan.estimate')}</p>
@@ -142,9 +199,11 @@ export function PlanPage() {
                 <ErrorText error={place.error} />
               </>
             )}
-            <Button variant="secondary" onClick={() => setWalkIn((v) => !v)}>
-              {walkIn ? t('plan.hideQr') : t('plan.walkInQr')}
-            </Button>
+            {plan.lines.length > 0 && (
+              <Button variant="secondary" onClick={() => setWalkIn((v) => !v)}>
+                {walkIn ? t('plan.hideQr') : t('plan.walkInQr')}
+              </Button>
+            )}
           </div>
           <p className="mt-4 text-xs text-muted">{t('plan.finalNote')}</p>
         </Card>
@@ -152,6 +211,15 @@ export function PlanPage() {
           <Card className="p-6 text-center">
             <p className="font-semibold">{t('plan.walkInTitle')}</p>
             <p className="mb-4 text-sm text-muted">{t('plan.walkInBody')}</p>
+            {weighed.rows.length > 0 && (
+              <p className="mb-4 text-xs text-muted">
+                {t('weight.notInListQr', {
+                  items: weighed.rows
+                    .map((r) => `${r.item ? itemName(r.item) : r.itemNo} ${formatGrams(r.grams)}`)
+                    .join(', '),
+                })}
+              </p>
+            )}
             <QrCode
               text={encodePlan({
                 visitCode: null,

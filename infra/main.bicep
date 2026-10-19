@@ -35,6 +35,11 @@ param paymentProvider string = ''
 @minLength(32)
 @description('Encrypts merchants\' YouPI-PG webhook secrets at rest.')
 param merchantSecretsKey string
+@description('Web push VAPID public key (npx web-push generate-vapid-keys). Empty = notifications off.')
+param vapidPublicKey string = ''
+@secure()
+@description('Web push VAPID private key, kept in Key Vault.')
+param vapidPrivateKey string = ''
 @description('Object id of the CI service principal (GitHub OIDC). Gets blob upload and secret read rights.')
 param deployerPrincipalId string = ''
 
@@ -177,6 +182,7 @@ var secrets = {
   'APP-DB-PASSWORD': appDbPassword
   'JWT-SECRET': jwtSecret
   'MERCHANT-SECRETS-KEY': merchantSecretsKey
+  'VAPID-PRIVATE-KEY': empty(vapidPrivateKey) ? 'not-set' : vapidPrivateKey
   'MSG91-AUTH-KEY': empty(msg91AuthKey) ? 'not-set' : msg91AuthKey
   'MSG91-TEMPLATE-ID': empty(msg91TemplateId) ? 'not-set' : msg91TemplateId
 }
@@ -251,6 +257,8 @@ resource func 'Microsoft.Web/sites@2024-04-01' = {
         { name: 'PAYMENT_PROVIDER', value: effectiveProvider }
         { name: 'MERCHANT_SECRETS_KEY', value: '@Microsoft.KeyVault(SecretUri=${vaultUri}secrets/MERCHANT-SECRETS-KEY)' }
         { name: 'PUBLIC_ORIGIN', value: empty(domain) ? '' : 'https://${domain}' }
+        { name: 'VAPID_PUBLIC_KEY', value: vapidPublicKey }
+        { name: 'VAPID_PRIVATE_KEY', value: '@Microsoft.KeyVault(SecretUri=${vaultUri}secrets/VAPID-PRIVATE-KEY)' }
       ]
     }
     functionAppConfig: {

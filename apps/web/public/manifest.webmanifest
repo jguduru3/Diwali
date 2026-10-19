@@ -1,0 +1,38 @@
+{
+  "id": "/",
+  "name": "Diwali Express Pickup",
+  "short_name": "Diwali Express",
+  "description": "Order from licensed Diwali shops in Hyderabad and collect at Express Pickup.",
+  "lang": "en-IN",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#140c24",
+  "background_color": "#fbf7f1",
+  "categories": ["shopping", "lifestyle"],
+  "icons": [
+    { "src": "/icons/customer-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/customer-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    {
+      "src": "/icons/customer-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/customer-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    { "src": "/icons/customer.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [
+    {
+      "name": "My orders",
+      "url": "/orders",
+      "icons": [{ "src": "/icons/customer-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

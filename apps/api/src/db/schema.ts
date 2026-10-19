@@ -30,6 +30,7 @@ import {
   LINE_STATUSES,
   ORDER_STATUSES,
   ROLES,
+  SALE_UNITS,
 } from '@pataka/shared';
 
 export const userRole = pgEnum('user_role', ROLES);
@@ -41,6 +42,7 @@ export const feePaymentStatus = pgEnum('fee_payment_status', FEE_PAYMENT_STATUSE
 export const feeRefundStatus = pgEnum('fee_refund_status', FEE_REFUND_STATUSES);
 export const counterMethod = pgEnum('counter_method', COUNTER_METHODS);
 export const counterPaymentStatus = pgEnum('counter_payment_status', COUNTER_PAYMENT_STATUSES);
+export const saleUnit = pgEnum('sale_unit', SALE_UNITS);
 
 const tz = (name: string) => timestamp(name, { withTimezone: true });
 const id = () => uuid('id').primaryKey().defaultRandom();
@@ -233,7 +235,9 @@ export const items = pgTable(
     nameEn: text('name_en').notNull(),
     nameTe: text('name_te'),
     packDesc: text('pack_desc'),
+    /** per pack, or per kg when sale_unit is kg / mix_kg */
     pricePaise: integer('price_paise').notNull(),
+    saleUnit: saleUnit('sale_unit').notNull().default('pack'),
     /** shop price version at the last price change; counters flag lists older than this */
     priceVersion: integer('price_version').notNull().default(1),
     greenCert: greenCertType('green_cert').notNull(),
@@ -243,7 +247,7 @@ export const items = pgTable(
     /** product photo in the shop-media store (served by /api/media) */
     imagePath: text('image_path'),
     barcode: text('barcode'),
-    /** null = stock not tracked */
+    /** null = stock not tracked; units for pack items, grams for kg items */
     stockQty: integer('stock_qty'),
     offerPricePaise: integer('offer_price_paise'),
     offerEndsAt: tz('offer_ends_at'),
@@ -337,10 +341,18 @@ export const orderLines = pgTable(
     nameEn: text('name_en').notNull(),
     nameTe: text('name_te'),
     packDesc: text('pack_desc'),
+    /** per pack, or per kg for weighed lines */
     unitPricePaise: integer('unit_price_paise').notNull(),
+    saleUnit: saleUnit('sale_unit').notNull().default('pack'),
+    /** always 1 for weighed lines */
     qty: integer('qty').notNull(),
     status: lineStatus('status').notNull().default('pending'),
     pickedQty: integer('picked_qty').notNull().default(0),
+    orderedGrams: integer('ordered_grams'),
+    packedGrams: integer('packed_grams'),
+    proposedGrams: integer('proposed_grams'),
+    /** mix box: the items the customer asked for (no quantities) */
+    mixItemIds: uuid('mix_item_ids').array(),
     replacesLineId: uuid('replaces_line_id'),
     alternateItemId: uuid('alternate_item_id').references(() => items.id),
     alternateQty: integer('alternate_qty'),
@@ -353,6 +365,7 @@ export const orderLines = pgTable(
     check('order_lines_qty', sql`${t.qty} between 1 and 99`),
     check('order_lines_picked', sql`${t.pickedQty} between 0 and ${t.qty}`),
     check('order_lines_price', sql`${t.unitPricePaise} > 0`),
+    check('order_lines_weight', sql`(${t.saleUnit} = 'pack') = (${t.orderedGrams} is null)`),
   ],
 );
 
@@ -524,6 +537,57 @@ export const dailyShopStats = pgTable(
     ...stamps,
   },
   (t) => [primaryKey({ columns: [t.shopId, t.day] })],
+);
+
+// ---- Web push (SPEC_V3 §11) ----
+
+/** A browser's push subscription for one installed app. Removed on sign-out, delete-me and purge. */
+export const pushSubscriptions = pgTable(
+  'push_subscriptions',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    endpoint: text('endpoint').notNull().unique(),
+    p256dh: text('p256dh').notNull(),
+    auth: text('auth').notNull(),
+    app: text('app').notNull(),
+    lang: text('lang').notNull().default('en'),
+    lastSentAt: tz('last_sent_at'),
+    ...stamps,
+  },
+  (t) => [
+    index('push_subscriptions_user').on(t.userId),
+    check('push_subscriptions_app', sql`${t.app} in ('customer', 'merchant')`),
+  ],
+);
+
+/**
+ * Notifications written in the same transaction as the order change, so a
+ * rolled-back change never notifies. Sent right after the request, and by the
+ * minute timer if that fails.
+ */
+export const pushOutbox = pgTable(
+  'push_outbox',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    app: text('app').notNull(),
+    kind: text('kind').notNull(),
+    url: text('url').notNull(),
+    params: jsonb('params').notNull().default({}),
+    attempts: integer('attempts').notNull().default(0),
+    sentAt: tz('sent_at'),
+    createdAt: tz('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('push_outbox_pending')
+      .on(t.createdAt)
+      .where(sql`${t.sentAt} is null`),
+  ],
 );
 
 // ---- Views ----

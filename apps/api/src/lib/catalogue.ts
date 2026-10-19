@@ -44,6 +44,7 @@ export function itemView(row: typeof items.$inferSelect, now = new Date()): Item
     greenRef: row.greenRef,
     rackCode: row.rackCode,
     imageUrl: itemImageUrl(row),
+    saleUnit: row.saleUnit,
     barcode: row.barcode,
     stockQty: row.stockQty,
     offerPricePaise: row.offerPricePaise,

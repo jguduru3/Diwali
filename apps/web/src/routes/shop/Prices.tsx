@@ -1,12 +1,15 @@
 import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  formatGrams,
   formatPaise,
   GREEN_CERTS,
   rupeesToPaise,
+  SALE_UNITS,
   type Category,
   type GreenCert,
   type Item,
+  type SaleUnit,
 } from '@pataka/shared';
 import { ErrorText } from '../../components/ErrorText';
 import { GreenBadge } from '../../components/GreenBadge';
@@ -42,6 +45,7 @@ type Draft = {
   greenCert: GreenCert;
   greenRef: string;
   rackCode: string;
+  saleUnit: SaleUnit;
   offer: string;
   offerEnds: string;
   barcode: string;
@@ -65,6 +69,7 @@ const emptyDraft = (cats: Category[]): Draft => ({
   greenCert: 'CSIR_NEERI_SWAS',
   greenRef: '',
   rackCode: '',
+  saleUnit: 'pack',
   offer: '',
   offerEnds: '',
   barcode: '',
@@ -132,10 +137,22 @@ function ItemForm({
             ))}
         </Select>
       </Field>
+      <Field
+        label={t('weight.soldBy')}
+        hint={d.saleUnit !== 'pack' ? t('weight.soldByHint') : undefined}
+      >
+        <Select value={d.saleUnit} onChange={set('saleUnit')}>
+          {SALE_UNITS.map((u) => (
+            <option key={u} value={u}>
+              {t(`weight.unit.${u}`)}
+            </option>
+          ))}
+        </Select>
+      </Field>
       <Field label={t('prices.pack')}>
         <Input value={d.packDesc} onChange={set('packDesc')} placeholder="10 pcs" />
       </Field>
-      <Field label={t('prices.price')}>
+      <Field label={d.saleUnit === 'pack' ? t('prices.price') : t('weight.pricePerKg')}>
         <Input
           required
           inputMode="decimal"
@@ -171,7 +188,10 @@ function ItemForm({
           maxLength={32}
         />
       </Field>
-      <Field label={t('prices.stock')} hint={t('prices.stockHint')}>
+      <Field
+        label={d.saleUnit === 'pack' ? t('prices.stock') : t('weight.stockGrams')}
+        hint={t('prices.stockHint')}
+      >
         <Input type="number" min={0} value={d.stock} onChange={set('stock')} />
       </Field>
       <Field label={t('prices.rack')} hint={t('prices.rackHint')}>
@@ -213,6 +233,7 @@ const toDraft = (i: Item): Draft => ({
   greenCert: i.greenCert,
   greenRef: i.greenRef,
   rackCode: i.rackCode ?? '',
+  saleUnit: i.saleUnit,
   offer: i.offerPricePaise ? String(i.offerPricePaise / 100) : '',
   offerEnds: isoToIstLocal(i.offerEndsAt),
   barcode: i.barcode ?? '',
@@ -227,6 +248,7 @@ const toBody = (d: Draft, p: Parsed) => ({
   nameTe: opt(d.nameTe),
   packDesc: opt(d.packDesc),
   pricePaise: p.pricePaise,
+  saleUnit: d.saleUnit,
   offerPricePaise: p.offerPricePaise,
   offerEndsAt: p.offerEndsAt,
   barcode: d.barcode.trim() || null,
@@ -347,6 +369,11 @@ export function Prices() {
                       <span className="shrink-0 text-right">
                         <span className="font-display text-xl font-semibold">
                           {formatPaise(item.effectivePricePaise)}
+                          {item.saleUnit !== 'pack' && (
+                            <span className="text-sm font-normal text-muted">
+                              {t('weight.perKg')}
+                            </span>
+                          )}
                         </span>
                         {item.effectivePricePaise < item.pricePaise && (
                           <span className="ml-2 text-sm text-muted line-through">
@@ -367,9 +394,20 @@ export function Prices() {
                       )}
                       <GreenBadge cert={item.greenCert} reference={item.greenRef} />
                       {item.barcode && <Badge tone="muted">▥ {item.barcode}</Badge>}
+                      {item.saleUnit !== 'pack' && (
+                        <Badge tone="plum">{t(`weight.unit.${item.saleUnit}`)}</Badge>
+                      )}
                       {item.stockQty != null && (
-                        <Badge tone={item.stockQty <= 5 ? 'danger' : 'muted'}>
-                          {t('prices.left', { count: item.stockQty })}
+                        <Badge
+                          tone={
+                            item.stockQty <= (item.saleUnit === 'pack' ? 5 : 2000)
+                              ? 'danger'
+                              : 'muted'
+                          }
+                        >
+                          {item.saleUnit === 'pack'
+                            ? t('prices.left', { count: item.stockQty })
+                            : t('weight.left', { weight: formatGrams(item.stockQty) })}
                         </Badge>
                       )}
                       {item.effectivePricePaise < item.pricePaise && (

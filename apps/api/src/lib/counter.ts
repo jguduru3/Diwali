@@ -1,13 +1,14 @@
 // Express Pickup counter (SPEC_V3 §1 step 6, §7). The cashier scans the
 // customer's pickup QR, then the pack sticker; payment goes to the MERCHANT by
 // their own YouPI-PG UPI, card machine or cash. Then the bill is issued.
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, gte, sql } from 'drizzle-orm';
 import { formatOrderCode, parseOrderQr } from '@pataka/shared';
 import type { Db } from '../db/client';
 import {
   counterPaymentEvents,
   counterPayments,
   merchantPaymentSettings,
+  orderEvents,
   orders,
   shopCounters,
   shops,
@@ -63,8 +64,11 @@ export async function paymentSettings(db: Db | Tx, shopId: string): Promise<Sett
 const youpiConfig = (s: Settings): YoupiConfig | null =>
   s.youpiBaseUrl ? { baseUrl: s.youpiBaseUrl, merchantId: s.youpiMerchantId } : null;
 
-/** Step 1: the customer's pickup QR opens their packed order at this shop. */
-export async function openByCustomerQr(db: Db, shop: ShopRow, qr: string) {
+/**
+ * Step 1: the customer's pickup QR opens their packed order at this shop. The
+ * scan is recorded; the pack can't be matched or paid for without it.
+ */
+export async function openByCustomerQr(db: Db, shop: ShopRow, actorId: string, qr: string) {
   const parsed = parseOrderQr(qr);
   if (!parsed) throw new HttpError(400, 'not_pickup_qr', "This isn't a Diwali Express Pickup QR");
   if (parsed.kind !== 'customer') {
@@ -93,6 +97,7 @@ export async function openByCustomerQr(db: Db, shop: ShopRow, qr: string) {
   if (order.o.status !== 'packed') {
     throw new HttpError(409, 'not_ready', `This order is ${order.o.status.replace('_', ' ')}`);
   }
+  await orderEvent(db, order.o.id, actorId, 'customer_qr_scanned');
   return staffOrderView(db, order.o);
 }
 
@@ -112,6 +117,24 @@ export async function matchPack(
     const order = await lockOrder(tx, (await shopOrder(tx, shop.id, orderId)).id);
     if (order.status !== 'packed')
       throw new HttpError(409, 'not_ready', 'This order is not packed');
+    const [seen] = await tx
+      .select({ id: orderEvents.id })
+      .from(orderEvents)
+      .where(
+        and(
+          eq(orderEvents.orderId, order.id),
+          eq(orderEvents.type, 'customer_qr_scanned'),
+          gte(orderEvents.at, order.packedAt!),
+        ),
+      )
+      .limit(1);
+    if (!seen) {
+      throw new HttpError(
+        409,
+        'scan_customer_first',
+        "Scan the customer's phone QR first, then the pack",
+      );
+    }
     if (order.packQrHash !== hashSecret(parsed.secret)) {
       await orderEvent(tx, order.id, actorId, 'wrong_pack_scanned');
       throw new HttpError(409, 'wrong_pack', `Wrong pack — this order is pack #${order.packNo}`);

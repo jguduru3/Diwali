@@ -12,6 +12,7 @@ import { errorResponse, HttpError } from '../lib/errors';
 import { http, json, parseBody } from '../lib/http';
 import { processFeeWebhook } from '../lib/orders';
 import { providerByName } from '../lib/payments';
+import { drainQuietly } from '../lib/push';
 import { mockId, mockProvider, signMockEvent } from '../lib/payments/mock';
 
 const MAX_WEBHOOK_BYTES = 64 * 1024;
@@ -22,7 +23,9 @@ function rawWebhook(handle: (req: HttpRequest, rawBody: string) => Promise<strin
       const rawBody = await req.text();
       if (rawBody.length > MAX_WEBHOOK_BYTES)
         throw new HttpError(413, 'too_large', 'Body too large');
-      return json({ ok: true, outcome: await handle(req, rawBody) });
+      const outcome = await handle(req, rawBody);
+      await drainQuietly(getDb());
+      return json({ ok: true, outcome });
     } catch (err) {
       if (err instanceof HttpError) return errorResponse(err.status, err.code, err.message);
       return errorResponse(500, 'internal', 'Something went wrong');

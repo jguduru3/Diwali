@@ -5,6 +5,7 @@ import { maskPhone } from '@pataka/shared';
 import { useDeleteAccount, useLogout, useMe } from '../auth/useAuth';
 import { ErrorText } from '../components/ErrorText';
 import { MembershipList } from '../components/MembershipList';
+import { NotificationsCard } from '../components/NotificationsCard';
 import { Badge, Button, Card, PageTitle } from '../components/ui';
 
 export function Account() {
@@ -55,6 +56,11 @@ export function Account() {
           {t('account.signOut')}
         </Button>
       </Card>
+
+      <NotificationsCard
+        app={me.role === 'customer' ? 'customer' : 'merchant'}
+        className="mt-6 p-6"
+      />
 
       <Card className="mt-6 border-danger/20 p-6">
         <h2 className="text-lg font-semibold">{t('account.deleteTitle')}</h2>
