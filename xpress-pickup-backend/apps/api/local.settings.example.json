@@ -24,6 +24,8 @@
     "PLATFORM_FEE_PAISE": "3000",
     "UNPAID_ORDER_TTL_MINUTES": "60",
     "ORDER_CHANGED_SMS_GAP_MINUTES": "15",
-    "CALL_PROVIDER": "log"
+    "CALL_PROVIDER": "log",
+    "VAPID_PUBLIC_KEY": "",
+    "VAPID_PRIVATE_KEY": ""
   }
 }

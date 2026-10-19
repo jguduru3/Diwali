@@ -8,6 +8,7 @@ import './functions/public';
 import './functions/orders';
 import './functions/media';
 import './functions/payments';
+import './functions/push';
 import './functions/gate';
 import './functions/shop';
 import './functions/adminMembers';

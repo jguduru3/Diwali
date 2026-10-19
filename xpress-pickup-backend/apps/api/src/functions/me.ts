@@ -8,6 +8,7 @@ import { mePatchSchema } from '@pataka/shared';
 import { parseBody, route } from '../lib/http';
 import { clearGrowthIdentity } from '../lib/growth/common';
 import { toMe } from '../lib/members';
+import { removeAllForUser } from '../lib/push';
 
 /** GET /api/me — 401 when signed out. */
 export async function getMeHandler(req: HttpRequest, db: Db = getDb()): Promise<HttpResponseInit> {
@@ -42,6 +43,7 @@ export async function deleteMeHandler(
     await tx.delete(shopMembers).where(eq(shopMembers.userId, user.id));
     await tx.delete(clusterMarshals).where(eq(clusterMarshals.userId, user.id));
     await clearGrowthIdentity(tx, [user.id]);
+    await removeAllForUser(tx, user.id);
     await audit(tx, {
       actorUserId: user.id,
       action: 'user.delete_self',

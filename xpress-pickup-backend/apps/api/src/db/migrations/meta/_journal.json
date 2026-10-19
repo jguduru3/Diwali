@@ -148,6 +148,13 @@
       "when": 1793800000000,
       "tag": "0019_item_open_photo",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1793900000000,
+      "tag": "0020_push_notifications",
+      "breakpoints": true
     }
   ]
 }
