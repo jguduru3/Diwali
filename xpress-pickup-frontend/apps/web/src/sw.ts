@@ -13,6 +13,7 @@ import { CacheFirst, NetworkFirst } from 'workbox-strategies';
 import { fillTemplate, pushPayloadSchema } from '@pataka/shared';
 import { push as enPush } from './i18n/en.json';
 import { push as tePush } from './i18n/te.json';
+import { push as hiPush } from './i18n/hi.json';
 
 declare const self: ServiceWorkerGlobalScope;
 
@@ -53,7 +54,7 @@ clientsClaim();
 
 // ---- Push ----
 
-const TEXT = { en: enPush, te: tePush } as const;
+const TEXT = { en: enPush, te: tePush, hi: hiPush } as const;
 
 self.addEventListener('push', (event) => {
   let data: unknown;

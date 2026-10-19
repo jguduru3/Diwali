@@ -288,3 +288,9 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* The merchant app (shop, gate, console) gets an ink header so staff can tell the two apps
+   apart; customers keep brand-900. */
+html[data-app='merchant'] header.glass-dark {
+  background-color: rgb(15 27 38 / 0.92);
+}

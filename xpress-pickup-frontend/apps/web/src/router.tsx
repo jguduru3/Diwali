@@ -37,6 +37,7 @@ import { AgentPage } from './routes/growth/AgentPage';
 import { OwnerApprovePage, OwnerReviewPage } from './routes/growth/OwnerPages';
 import { TermsPage } from './routes/growth/TermsPage';
 import { Login } from './routes/Login';
+import { MerchantStart } from './routes/MerchantStart';
 import { NotFound } from './routes/NotFound';
 import { Counter } from './routes/shop/Counter';
 import { Hours } from './routes/shop/Hours';
@@ -73,6 +74,7 @@ export const routes: RouteObject[] = [
       { path: '/agent', element: <AgentPage /> },
       { path: '/about', element: <About /> },
       { path: '/login', element: <Login /> },
+      { path: '/merchant', element: <MerchantStart /> },
       { path: '/account', element: guard(<Account />) },
       {
         path: '/shop',

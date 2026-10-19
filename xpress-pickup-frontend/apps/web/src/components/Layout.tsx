@@ -5,7 +5,10 @@ import { canAccessArea, type Area } from '@pataka/shared';
 import { useAccountLanguage, useMe } from '../auth/useAuth';
 import { useOrdersNeedingAnswer } from '../lib/alerts';
 import { useProfiles } from '../lib/growth';
+import { syncAppChrome } from '../lib/appKind';
 import { Brand } from './Brand';
+import { ErrorBoundary } from './ErrorBoundary';
+import { OfflineBanner, PwaChrome } from './PwaChrome';
 import { DemoRibbon, DemoSwitcher } from './DemoSwitcher';
 import { LanguageMenu } from './LanguageMenu';
 import { cx } from './ui';
@@ -104,6 +107,12 @@ export function Layout() {
     window.scrollTo(0, 0);
   }, [pathname]);
 
+  // Customer or merchant app (manifest, icon, title), kept in step with the page.
+  const [app, setApp] = useState(() => syncAppChrome(pathname));
+  useEffect(() => {
+    setApp(syncAppChrome(pathname));
+  }, [pathname]);
+
   return (
     <div className="flex min-h-screen flex-col">
       <a
@@ -115,7 +124,7 @@ export function Layout() {
       <DemoRibbon />
       <header
         ref={headerRef}
-        className="glass-dark no-print sticky top-0 z-30 border-b border-white/10 text-white"
+        className="glass-dark no-print sticky top-0 z-30 border-b border-white/10 pt-[env(safe-area-inset-top)] text-white"
       >
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-4 py-2.5 sm:flex-wrap sm:gap-3 sm:px-6 sm:pt-3 sm:pb-0">
           <Link to="/" aria-label={t('app.name')} className="min-w-0">
@@ -181,12 +190,17 @@ export function Layout() {
       {showCart && <MultiShopFeeNotice />}
       {settings.gameEnabled && showCart && GAME_PAGES.test(pathname) && <BeaFloat />}
 
+      <OfflineBanner />
+
       <main
         id="main"
         className="mx-auto w-full max-w-6xl flex-1 px-4 py-5 pb-24 sm:px-6 sm:py-10 sm:pb-10"
       >
-        <Outlet />
+        <ErrorBoundary resetKey={pathname}>
+          <Outlet />
+        </ErrorBoundary>
       </main>
+      <PwaChrome app={app} />
 
       {phone && (
         <nav

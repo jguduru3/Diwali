@@ -5,6 +5,7 @@ import { maskPhone } from '@pataka/shared';
 import { useDeleteAccount, useLogout, useMe } from '../auth/useAuth';
 import { ErrorText } from '../components/ErrorText';
 import { MembershipList } from '../components/MembershipList';
+import { NotificationsCard } from '../components/NotificationsCard';
 import { Badge, Button, ButtonLink, Card, PageTitle } from '../components/ui';
 import { useProfiles } from '../lib/growth';
 
@@ -74,6 +75,10 @@ export function Account() {
       </Card>
 
       <GrowthLinks />
+      <NotificationsCard
+        app={me.role === 'customer' ? 'customer' : 'merchant'}
+        className="mt-6 p-6"
+      />
 
       <Card className="mt-6 border-danger/20 p-6">
         <h2 className="text-lg font-bold">{t('account.deleteTitle')}</h2>
