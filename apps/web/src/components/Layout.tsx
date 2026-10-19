@@ -1,11 +1,14 @@
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { canAccessArea, type Area } from '@pataka/shared';
 import { useMe } from '../auth/useAuth';
 import { setLanguage } from '../i18n';
+import { syncAppChrome } from '../lib/appKind';
 import { Brand } from './Brand';
 import { DemoRibbon, DemoSwitcher } from './DemoSwitcher';
+import { ErrorBoundary } from './ErrorBoundary';
+import { OfflineBanner, PwaChrome } from './PwaChrome';
 import { cx } from './ui';
 
 const areaLinks: { to: string; area: Area }[] = [
@@ -43,9 +46,12 @@ export function Layout() {
   const { pathname } = useLocation();
   const visible = areaLinks.filter((l) => canAccessArea(me?.role, l.area));
 
+  const [app, setApp] = useState(() => syncAppChrome(pathname));
+
   // Braces matter: newer browsers return a Promise from scrollTo(), which React would treat as a cleanup.
   useEffect(() => {
     window.scrollTo(0, 0);
+    setApp(syncAppChrome(pathname));
   }, [pathname]);
 
   return (
@@ -57,7 +63,7 @@ export function Layout() {
         {t('nav.skip')}
       </a>
       <DemoRibbon />
-      <header className="night-sky no-print sticky top-0 z-30 border-b border-white/10 text-white shadow-[0_10px_30px_-20px_rgb(0_0_0/0.8)]">
+      <header className="night-sky no-print sticky top-0 z-30 pt-[env(safe-area-inset-top)] border-b border-white/10 text-white shadow-[0_10px_30px_-20px_rgb(0_0_0/0.8)]">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 pt-3 sm:px-6">
           <Link to="/" aria-label={t('app.name')}>
             <Brand />
@@ -99,12 +105,16 @@ export function Layout() {
           </NavLink>
         </nav>
       </header>
+      <OfflineBanner />
 
       <main id="main" className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 sm:py-10">
-        <Outlet />
+        <ErrorBoundary resetKey={pathname}>
+          <Outlet />
+        </ErrorBoundary>
       </main>
+      <PwaChrome app={app} />
 
-      <footer className="no-print border-t border-line bg-white/60">
+      <footer className="no-print border-t border-line bg-white/60 pb-[env(safe-area-inset-bottom)]">
         <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-6 text-sm text-muted sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <p className="flex items-start gap-2">
             <span aria-hidden className="text-gold-deep">

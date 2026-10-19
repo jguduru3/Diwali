@@ -766,5 +766,77 @@
     "soldByHint": "Price and stock are per kg; customers order in 250 g steps.",
     "pricePerKg": "Price per kg (₹)",
     "stockGrams": "Stock (grams)"
+  },
+  "push": {
+    "new_order": {
+      "title": "New order {{code}}",
+      "body": "A paid order at {{shop}} is waiting to be confirmed."
+    },
+    "customer_answered": {
+      "title": "Customer answered — {{code}}",
+      "body": "You can carry on packing."
+    },
+    "order_confirmed": {
+      "title": "{{shop}} confirmed your order",
+      "body": "We will let you know when it is packed."
+    },
+    "order_needs_answer": {
+      "title": "{{shop}} needs your answer",
+      "body": "An item changed. Open your order to choose."
+    },
+    "order_packed": {
+      "title": "Packed — pack no. {{packNo}}",
+      "body": "Show your pickup QR at {{shop}}'s Express Pickup counter."
+    },
+    "order_completed": {
+      "title": "Paid — bill {{billNo}}",
+      "body": "Thank you for shopping at {{shop}}. Have a safe Diwali!"
+    },
+    "order_rejected": {
+      "title": "{{shop}} couldn't take your order",
+      "body": "Your ₹30 platform fee will be refunded."
+    },
+    "order_expired": {
+      "title": "Order {{code}} expired",
+      "body": "The shop did not confirm within 3 days. Your ₹30 platform fee will be refunded."
+    },
+    "test": {
+      "title": "Notifications are on",
+      "body": "Order updates will show up here."
+    }
+  },
+  "notify": {
+    "title": "Notifications",
+    "customerBody": "Get a notification when your order is confirmed, needs your answer, or is packed.",
+    "merchantBody": "Get a notification for every new paid order and when a customer answers.",
+    "enable": "Turn on notifications",
+    "disable": "Turn off",
+    "test": "Send a test",
+    "on": "On for this phone",
+    "blocked": "Notifications are blocked for this site. Allow them in your browser settings.",
+    "unsupported": "This browser cannot show notifications.",
+    "iosInstall": "On iPhone, add this app to your Home Screen first, then open it from there to turn on notifications.",
+    "notConfigured": "Notifications are not set up on this server yet."
+  },
+  "pwa": {
+    "installTitle": "Install the app",
+    "installCustomer": "Add Diwali Express to your home screen for one-tap ordering and pickup.",
+    "installMerchant": "Add Diwali Express Merchant to your home screen for orders, packing and the counter.",
+    "install": "Install",
+    "later": "Not now",
+    "iosHint": "Tap the Share button, then “Add to Home Screen”.",
+    "updateReady": "A new version is ready.",
+    "reload": "Update now",
+    "offline": "You're offline. Saved lists and orders still open; changes need a connection.",
+    "offlineReady": "Ready to work offline."
+  },
+  "merchantStart": {
+    "title": "Diwali Express Merchant",
+    "body": "Sign in with the phone number the platform team registered for your shop."
+  },
+  "crash": {
+    "title": "Something went wrong on this screen",
+    "body": "Your saved lists and orders are safe. Reload to try again.",
+    "reload": "Reload"
   }
 }

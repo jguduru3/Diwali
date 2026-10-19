@@ -148,3 +148,10 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* The merchant app (shop, gate, console) gets a teal sky so staff can tell the two apps apart. */
+html[data-app='merchant'] header.night-sky {
+  --color-night: #082623;
+  --color-plum: #0f4c45;
+  --color-plum-2: #0b3a35;
+}
