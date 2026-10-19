@@ -43,6 +43,7 @@ import {
   type ShopInput,
   type ShopPatch,
   type ShopSettings,
+  type Weigh,
 } from '@pataka/shared';
 import { switchAccount, useMe } from '../auth/useAuth';
 import { api } from './api';
@@ -387,6 +388,7 @@ export const useScanItem = () => useOrderAction<{ barcode: string }>('scan');
 export const usePickByHand = () => useOrderAction<{ lineId: string }>('pick');
 export const useOutOfStock = () => useOrderAction<{ lineId: string }>('out-of-stock');
 export const useProposeAlternate = () => useOrderAction<ProposeAlternate>('alternate');
+export const useWeighLine = () => useOrderAction<Weigh>('weigh');
 
 export function useFinishPacking() {
   const qc = useQueryClient();

@@ -1,7 +1,14 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { formatPaise, type Bill, type CustomerOrder, type OrderLine } from '@pataka/shared';
+import {
+  formatGrams,
+  formatPaise,
+  lineAmount,
+  type Bill,
+  type CustomerOrder,
+  type OrderLine,
+} from '@pataka/shared';
 import { ErrorText } from '../../components/ErrorText';
 import { OrderStatusChip } from '../../components/OrderStatusChip';
 import { QrCode } from '../../components/QrCode';
@@ -51,8 +58,11 @@ export function BillView({ bill }: { bill: Bill }) {
           {bill.lines.map((l, i) => (
             <tr key={i} className="border-b border-line/60">
               <td className="py-2 pr-2">{l.nameEn}</td>
-              <td className="py-2 text-right">{l.qty}</td>
-              <td className="py-2 text-right">{formatPaise(l.unitPricePaise)}</td>
+              <td className="py-2 text-right">{l.grams != null ? formatGrams(l.grams) : l.qty}</td>
+              <td className="py-2 text-right">
+                {formatPaise(l.unitPricePaise)}
+                {l.grams != null && t('weight.perKg')}
+              </td>
               <td className="py-2 text-right font-semibold">{formatPaise(l.totalPaise)}</td>
             </tr>
           ))}
@@ -85,7 +95,43 @@ function Decision({ order, line }: { order: CustomerOrder; line: OrderLine }) {
   const name = itemName(line);
   return (
     <Card className="p-4">
-      {line.status === 'out_of_stock' ? (
+      {line.status === 'weight_proposed' ? (
+        <>
+          <p className="font-semibold">
+            {t('weight.proposedBody', {
+              name,
+              weighed: formatGrams(line.proposedGrams ?? 0),
+              ordered: formatGrams(line.orderedGrams ?? 0),
+              price: formatPaise(
+                lineAmount(line.unitPricePaise, { grams: line.proposedGrams ?? 0 }),
+              ),
+            })}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button
+              variant="success"
+              disabled={decide.isPending}
+              onClick={() => decide.mutate({ lineId: line.id, decision: 'accept' })}
+            >
+              {t('order.accept')}
+            </Button>
+            <Button
+              variant="secondary"
+              disabled={decide.isPending}
+              onClick={() => decide.mutate({ lineId: line.id, decision: 'decline' })}
+            >
+              {t('weight.repack')}
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={decide.isPending}
+              onClick={() => decide.mutate({ lineId: line.id, decision: 'remove' })}
+            >
+              {t('order.remove')}
+            </Button>
+          </div>
+        </>
+      ) : line.status === 'out_of_stock' ? (
         <>
           <p className="font-semibold">{t('order.oosBody', { name })}</p>
           <Button
@@ -213,10 +259,21 @@ export function OrderPage() {
   const shown = o.lines.filter((l) => l.status !== 'replaced' && l.status !== 'removed');
   // Follows the shop's changes (removed items, accepted alternatives) until the bill is final.
   const liveEstimate = o.lines
-    .filter((l) => l.status === 'pending' || l.status === 'picked')
-    .reduce((n, l) => n + l.unitPricePaise * l.qty, 0);
+    .filter((l) => ['pending', 'picked', 'weight_proposed'].includes(l.status))
+    .reduce(
+      (n, l) =>
+        n +
+        lineAmount(
+          l.unitPricePaise,
+          l.saleUnit === 'pack' ? { qty: l.qty } : { grams: l.packedGrams ?? l.orderedGrams ?? 0 },
+        ),
+      0,
+    );
   const open = o.lines.filter(
-    (l) => l.status === 'out_of_stock' || l.status === 'alternate_proposed',
+    (l) =>
+      l.status === 'out_of_stock' ||
+      l.status === 'alternate_proposed' ||
+      l.status === 'weight_proposed',
   );
   const closed = ['completed', 'cancelled', 'rejected', 'expired'].includes(o.status);
   const cancellable = [
@@ -306,8 +363,16 @@ export function OrderPage() {
                 <div className="min-w-0 flex-1">
                   <p className="font-semibold">{itemName(l)}</p>
                   <p className="text-sm text-muted">
-                    {l.qty} × {formatPaise(l.unitPricePaise)} {l.packDesc && `· ${l.packDesc}`}
+                    {l.saleUnit === 'pack'
+                      ? `${l.qty} × ${formatPaise(l.unitPricePaise)}`
+                      : `${formatGrams(l.packedGrams ?? l.orderedGrams ?? 0)} × ${formatPaise(l.unitPricePaise)}${t('weight.perKg')}`}{' '}
+                    {l.packDesc && `· ${l.packDesc}`}
                   </p>
+                  {l.mixItems.length > 0 && (
+                    <p className="text-xs text-muted">
+                      {t('weight.mixOf', { items: l.mixItems.map((m) => itemName(m)).join(', ') })}
+                    </p>
+                  )}
                 </div>
                 <Badge
                   tone={

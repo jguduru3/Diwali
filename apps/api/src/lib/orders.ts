@@ -16,6 +16,8 @@ import {
   finalTotal,
   formatOrderCode,
   istDate,
+  isWeighed,
+  lineAmount,
   needsCustomer,
   readyToPack,
   staffPhoneMask,
@@ -32,6 +34,8 @@ import {
   type StaffOrder,
   type StaffOrderLine,
   type StaffOrderSummary,
+  type Weigh,
+  withinTolerance,
 } from '@pataka/shared';
 import type { Db } from '../db/client';
 import {
@@ -152,14 +156,21 @@ async function lineRows(db: Db | Tx, orderIds: string[]) {
     .where(inArray(orderLines.orderId, orderIds))
     .orderBy(asc(orderLines.lineNo));
   const altIds = lines.map((l) => l.line.alternateItemId).filter((x): x is string => !!x);
-  const alts = altIds.length ? await db.select().from(items).where(inArray(items.id, altIds)) : [];
+  const mixIds = lines.flatMap((l) => l.line.mixItemIds ?? []);
+  const extraIds = [...new Set([...altIds, ...mixIds])];
+  const extras = extraIds.length
+    ? await db.select().from(items).where(inArray(items.id, extraIds))
+    : [];
   return lines.map((l) => ({
     ...l,
-    alt: alts.find((a) => a.id === l.line.alternateItemId) ?? null,
+    alt: extras.find((a) => a.id === l.line.alternateItemId) ?? null,
+    mix: (l.line.mixItemIds ?? [])
+      .map((id) => extras.find((x) => x.id === id))
+      .filter((x): x is ItemRow => !!x),
   }));
 }
 
-function lineView(line: LineRow, item: ItemRow, alt: ItemRow | null): OrderLine {
+function lineView(line: LineRow, item: ItemRow, alt: ItemRow | null, mix: ItemRow[]): OrderLine {
   return {
     id: line.id,
     lineNo: line.lineNo,
@@ -169,10 +180,15 @@ function lineView(line: LineRow, item: ItemRow, alt: ItemRow | null): OrderLine 
     nameTe: line.nameTe,
     packDesc: line.packDesc,
     imageUrl: itemImageUrl(item),
+    saleUnit: line.saleUnit,
     qty: line.qty,
     unitPricePaise: line.unitPricePaise,
     status: line.status,
     pickedQty: line.pickedQty,
+    orderedGrams: line.orderedGrams,
+    packedGrams: line.packedGrams,
+    proposedGrams: line.proposedGrams,
+    mixItems: mix.map((m) => ({ itemId: m.id, nameEn: m.nameEn, nameTe: m.nameTe })),
     replacesLineId: line.replacesLineId,
     alternate:
       alt && line.alternateQty && line.alternatePricePaise
@@ -249,8 +265,12 @@ export async function billFor(db: Db | Tx, order: OrderRow, shop: ShopRow): Prom
     lines: picked.map((l) => ({
       nameEn: l.nameEn,
       qty: l.pickedQty,
+      grams: l.packedGrams,
       unitPricePaise: l.unitPricePaise,
-      totalPaise: l.pickedQty * l.unitPricePaise,
+      totalPaise: lineAmount(
+        l.unitPricePaise,
+        l.packedGrams != null ? { grams: l.packedGrams } : { qty: l.pickedQty },
+      ),
     })),
     totalPaise: order.finalTotalPaise ?? 0,
     payment: {
@@ -278,7 +298,7 @@ export async function customerOrderView(db: Db | Tx, order: OrderRow): Promise<C
       lng: cluster?.lng ?? shop!.lng,
       pickupNotes: cluster?.gateNotes ?? null,
     },
-    lines: rows.map((r) => lineView(r.line, r.item, r.alt)),
+    lines: rows.map((r) => lineView(r.line, r.item, r.alt, r.mix)),
     estimatedTotalPaise: order.estimatedTotalPaise,
     finalTotalPaise: order.finalTotalPaise,
     packNo: order.packNo,
@@ -307,7 +327,7 @@ export async function staffOrderView(db: Db | Tx, order: OrderRow): Promise<Staf
     .orderBy(desc(counterPayments.createdAt))
     .limit(1);
   const lines: StaffOrderLine[] = rows.map((r) => ({
-    ...lineView(r.line, r.item, r.alt),
+    ...lineView(r.line, r.item, r.alt, r.mix),
     barcode: r.item.barcode,
     rackCode: r.item.rackCode,
     stockQty: r.item.stockQty,
@@ -425,38 +445,71 @@ export async function placeOrder(
     .where(eq(visibleShops.shortCode, input.shopCode));
   if (!shop) throw new HttpError(404, 'shop_not_found', 'This shop is not listed');
 
+  const wanted = input.lines.flatMap((l) => [
+    l.itemId,
+    ...('mixItemIds' in l ? (l.mixItemIds ?? []) : []),
+  ]);
   const rows = await db
     .select({ item: items, banned: categories.isBanned })
     .from(items)
     .innerJoin(categories, eq(categories.id, items.categoryId))
-    .where(
-      and(
-        eq(items.shopId, shop.id),
-        inArray(
-          items.id,
-          input.lines.map((l) => l.itemId),
-        ),
-      ),
-    );
+    .where(and(eq(items.shopId, shop.id), inArray(items.id, wanted)));
+  const usable = (id: string) => {
+    const row = rows.find((r) => r.item.id === id);
+    return row && row.item.isActive && !row.banned ? row : null;
+  };
   const now = new Date();
   const priced = input.lines.map((l) => {
-    const row = rows.find((r) => r.item.id === l.itemId);
-    if (!row || !row.item.isActive || row.banned) {
+    const row = usable(l.itemId);
+    if (!row) {
       throw new HttpError(409, 'item_unavailable', 'An item in your list is no longer available');
     }
-    if (row.item.isSoldOut || row.item.stockQty === 0) {
-      throw new HttpError(409, 'item_sold_out', `${row.item.nameEn} is sold out`);
+    const { item } = row;
+    if (item.isSoldOut || item.stockQty === 0) {
+      throw new HttpError(409, 'item_sold_out', `${item.nameEn} is sold out`);
     }
-    if (row.item.stockQty != null && l.qty > row.item.stockQty) {
+    const unit = effectivePrice(item, now);
+    const weighed = 'grams' in l;
+    if (weighed !== isWeighed(item.saleUnit)) {
       throw new HttpError(
-        409,
-        'not_enough_stock',
-        `Only ${row.item.stockQty} of ${row.item.nameEn} left`,
+        400,
+        weighed ? 'not_sold_by_weight' : 'sold_by_weight',
+        weighed ? `${item.nameEn} is sold by the pack` : `${item.nameEn} is sold by weight`,
       );
     }
-    return { item: row.item, qty: l.qty, unit: effectivePrice(row.item, now) };
+    const size = weighed ? l.grams : l.qty;
+    if (item.stockQty != null && item.saleUnit !== 'mix_kg' && size > item.stockQty) {
+      throw new HttpError(409, 'not_enough_stock', `Not enough ${item.nameEn} left`);
+    }
+    let mixItemIds: string[] | null = null;
+    if (weighed && item.saleUnit === 'mix_kg') {
+      mixItemIds = [...new Set(l.mixItemIds ?? [])];
+      if (!mixItemIds.length) {
+        throw new HttpError(400, 'mix_needs_items', 'Choose the items you want in the mix box');
+      }
+      for (const id of mixItemIds) {
+        const m = usable(id);
+        if (!m || m.item.saleUnit === 'mix_kg' || m.item.isSoldOut) {
+          throw new HttpError(
+            409,
+            'item_unavailable',
+            'An item in your mix is no longer available',
+          );
+        }
+      }
+    } else if ('mixItemIds' in l && l.mixItemIds) {
+      throw new HttpError(400, 'not_a_mix', `${item.nameEn} is not a mix box`);
+    }
+    return {
+      item,
+      unit,
+      qty: weighed ? 1 : l.qty,
+      grams: weighed ? l.grams : null,
+      mixItemIds,
+      amount: lineAmount(unit, weighed ? { grams: l.grams } : { qty: l.qty }),
+    };
   });
-  const estimated = priced.reduce((n, p) => n + p.unit * p.qty, 0);
+  const estimated = priced.reduce((n, p) => n + p.amount, 0);
 
   let order: OrderRow | undefined;
   for (let attempt = 0; !order; attempt++) {
@@ -482,7 +535,10 @@ export async function placeOrder(
             nameTe: p.item.nameTe,
             packDesc: p.item.packDesc,
             unitPricePaise: p.unit,
+            saleUnit: p.item.saleUnit,
             qty: p.qty,
+            orderedGrams: p.grams,
+            mixItemIds: p.mixItemIds,
           })),
         );
         await orderEvent(tx, o!.id, userId, 'created', { lines: priced.length, estimated });
@@ -617,6 +673,31 @@ export async function customerDecision(
         await tx
           .update(orderLines)
           .set({ status: 'removed', decidedAt: new Date() })
+          .where(eq(orderLines.id, line.id));
+      }
+    } else if (line.status === 'weight_proposed') {
+      if (input.decision === 'accept') {
+        const [item] = await tx.select().from(items).where(eq(items.id, line.itemId));
+        if (item!.saleUnit === 'kg') await takeStockUpTo(tx, item!.id, line.proposedGrams!);
+        await tx
+          .update(orderLines)
+          .set({
+            status: 'picked',
+            pickedQty: 1,
+            packedGrams: line.proposedGrams,
+            proposedGrams: null,
+            decidedAt: new Date(),
+          })
+          .where(eq(orderLines.id, line.id));
+      } else {
+        // decline = ask the shop to repack to the ordered weight; remove = drop it
+        await tx
+          .update(orderLines)
+          .set({
+            status: input.decision === 'remove' ? 'removed' : 'pending',
+            proposedGrams: null,
+            decidedAt: new Date(),
+          })
           .where(eq(orderLines.id, line.id));
       }
     } else {
@@ -1008,6 +1089,9 @@ export async function scanItem(
       .from(items)
       .where(and(eq(items.shopId, shopId), eq(items.barcode, barcode)));
     if (!item) throw new HttpError(404, 'unknown_barcode', 'This barcode is not in your catalogue');
+    if (isWeighed(item.saleUnit)) {
+      throw new HttpError(409, 'weigh_required', `${item.nameEn} is sold by weight: weigh it`);
+    }
     const lines = await linesOf(tx, order.id);
     const forItem = lines.filter((l) => l.itemId === item.id);
     const line = forItem.find((l) => l.status === 'pending' && l.pickedQty < l.qty);
@@ -1048,6 +1132,9 @@ export async function pickByHand(
       .where(and(eq(orderLines.id, lineId), eq(orderLines.orderId, order.id)));
     if (!hit || hit.line.status !== 'pending') {
       throw new HttpError(409, 'line_not_pending', 'This item is not waiting to be picked');
+    }
+    if (hit.line.saleUnit !== 'pack') {
+      throw new HttpError(409, 'weigh_required', 'This item is sold by weight: weigh it');
     }
     if (hit.item.barcode) {
       throw new HttpError(409, 'scan_required', 'Scan the barcode for this item');
@@ -1145,6 +1232,9 @@ export async function proposeAlternate(
     if (alt.item.id === line.itemId) {
       throw new HttpError(400, 'same_item', 'Pick a different item as the alternative');
     }
+    if (line.saleUnit !== 'pack' || alt.item.saleUnit !== 'pack') {
+      throw new HttpError(409, 'not_for_weight', 'Alternatives are for items sold by the pack');
+    }
     const target = await splitPicked(tx, order, line, lines);
     await tx
       .update(orderLines)
@@ -1160,6 +1250,61 @@ export async function proposeAlternate(
       itemId: alt.item.id,
       qty: input.qty,
     });
+    return order;
+  });
+  return staffOrderView(db, row);
+}
+
+/** Takes up to `grams` from tracked kg stock, never below zero (customer already agreed). */
+async function takeStockUpTo(tx: Tx, itemId: string, grams: number) {
+  await tx
+    .update(items)
+    .set({ stockQty: sql`greatest(${items.stockQty} - ${grams}, 0)` })
+    .where(and(eq(items.id, itemId), sql`${items.stockQty} is not null`));
+}
+
+/**
+ * Packer records the scale reading for a weighed line. Within ±10 % of the
+ * order it is packed at that weight; outside, the customer must accept it or
+ * ask for a repack (silence is never approval).
+ */
+export async function weighLine(
+  db: Db,
+  shopId: string,
+  actorId: string,
+  orderId: string,
+  input: Weigh,
+) {
+  const row = await db.transaction(async (tx) => {
+    let order = await packingOrder(tx, shopId, orderId);
+    const lines = await linesOf(tx, order.id);
+    const line = lines.find((l) => l.id === input.lineId);
+    if (!line || line.status !== 'pending') {
+      throw new HttpError(409, 'line_not_pending', 'This item is not waiting to be packed');
+    }
+    if (line.saleUnit === 'pack' || line.orderedGrams == null) {
+      throw new HttpError(409, 'not_weighed', 'This item is sold by the pack: scan it');
+    }
+    if (withinTolerance(line.orderedGrams, input.grams)) {
+      if (line.saleUnit === 'kg' && !(await takeStock(tx, line.itemId, input.grams))) {
+        throw new HttpError(409, 'no_stock_left', `${line.nameEn}: stock shows too little left`);
+      }
+      await tx
+        .update(orderLines)
+        .set({ status: 'picked', pickedQty: 1, packedGrams: input.grams })
+        .where(eq(orderLines.id, line.id));
+      await orderEvent(tx, order.id, actorId, 'weighed', { lineId: line.id, grams: input.grams });
+    } else {
+      await tx
+        .update(orderLines)
+        .set({ status: 'weight_proposed', proposedGrams: input.grams })
+        .where(eq(orderLines.id, line.id));
+      order = await transition(tx, order, 'awaiting_customer', {}, actorId, 'weight_proposed', {
+        lineId: line.id,
+        orderedGrams: line.orderedGrams,
+        grams: input.grams,
+      });
+    }
     return order;
   });
   return staffOrderView(db, row);

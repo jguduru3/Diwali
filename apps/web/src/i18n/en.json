@@ -66,7 +66,8 @@
     "out_of_stock": "Out of stock",
     "alternate_proposed": "Alternative offered",
     "replaced": "Replaced",
-    "removed": "Removed"
+    "removed": "Removed",
+    "weight_proposed": "Weight to approve"
   },
   "fee": {
     "unpaid": "₹30 fee not paid",
@@ -722,10 +723,48 @@
     "upi_error": "The shop's UPI service refused the payment. Use card or cash.",
     "no_simulated_payment": "No test UPI payment is open.",
     "nothing_to_refund": "No paid fee on this order.",
-    "checkout_not_found": "Payment not found."
+    "checkout_not_found": "Payment not found.",
+    "not_sold_by_weight": "This item is sold by the pack.",
+    "sold_by_weight": "This item is sold by weight.",
+    "mix_needs_items": "Choose the items you want in the mix box.",
+    "not_a_mix": "This item is not a mix box.",
+    "weigh_required": "This item is sold by weight: weigh it instead of scanning.",
+    "not_weighed": "This item is sold by the pack: scan it.",
+    "not_for_weight": "Alternatives are only for items sold by the pack."
   },
   "notFound": {
     "title": "Page not found",
     "back": "Back to shops"
+  },
+  "weight": {
+    "add": "Add {{name}} by weight",
+    "addShort": "Add",
+    "less": "250 g less {{name}}",
+    "more": "250 g more {{name}}",
+    "perKg": "/kg",
+    "unit": {
+      "pack": "Per pack",
+      "kg": "Per kg",
+      "mix_kg": "Mix any items · per kg"
+    },
+    "onlyLeft": "Only {{weight}} left",
+    "left": "{{weight}} left",
+    "chooseMix": "Choose items",
+    "mixHelp": "Tick the crackers you want in your box. The shop fills it to your weight.",
+    "mixWeight": "Box weight",
+    "mixOf": "Mix of: {{items}}",
+    "weighedNote": "Items sold by weight are weighed when packed. A small difference (up to 10%) is billed as weighed; anything more is your call.",
+    "notInListQr": "Weighed items are not in this QR: {{items}}.",
+    "proposedBody": "The shop weighed {{weighed}} of {{name}} (you asked for {{ordered}}) — {{price}}.",
+    "repack": "Repack to my weight",
+    "toWeigh": "To weigh",
+    "scale": "Scale reading (g)",
+    "tolerance": "Within ±10% is packed straight away; otherwise the customer decides.",
+    "askCustomer": "Ask the customer",
+    "record": "Record weight",
+    "soldBy": "Sold by",
+    "soldByHint": "Price and stock are per kg; customers order in 250 g steps.",
+    "pricePerKg": "Price per kg (₹)",
+    "stockGrams": "Stock (grams)"
   }
 }

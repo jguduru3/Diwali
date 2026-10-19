@@ -3,22 +3,13 @@ import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { formatPaise } from '@pataka/shared';
 import { ErrorText } from '../../components/ErrorText';
-import { GreenBadge } from '../../components/GreenBadge';
-import { QtyStepper } from '../../components/QtyStepper';
-import {
-  Badge,
-  ButtonLink,
-  Card,
-  EmptyState,
-  Input,
-  Notice,
-  Spinner,
-  cx,
-} from '../../components/ui';
-import { categoryName, dayIST, itemName } from '../../lib/format';
+import { Badge, ButtonLink, EmptyState, Input, Notice, Spinner, cx } from '../../components/ui';
+import { categoryName, dayIST } from '../../lib/format';
 import { usePlan } from '../../lib/planList';
 import { useShop, useShopItems } from '../../lib/queries';
-import { usePlanDetails } from './usePlanDetails';
+import { useWeights } from '../../lib/weightList';
+import { ItemCard } from './ItemCard';
+import { usePlanDetails, useWeightDetails } from './usePlanDetails';
 
 export function ShopPage() {
   const { t } = useTranslation();
@@ -27,6 +18,10 @@ export function ShopPage() {
   const items = useShopItems(code);
   const plan = usePlan(code, items.data?.priceVersion);
   const details = usePlanDetails(plan.lines, items.data);
+  const weights = useWeights(code);
+  const weighed = useWeightDetails(weights.lines, items.data);
+  const count = plan.count + weights.lines.length;
+  const total = details.total + weighed.total;
   const [cat, setCat] = useState('');
   const [q, setQ] = useState('');
   const [full, setFull] = useState(false);
@@ -162,73 +157,20 @@ export function ShopPage() {
       )}
 
       <ul className="mt-2 grid gap-3 md:grid-cols-2">
-        {visible.map((item) => {
-          const qty = plan.qtyOf(item.itemNo);
-          const name = itemName(item);
-          return (
-            <Card
-              as="li"
-              key={item.id}
-              className={cx(
-                'flex items-center gap-4 p-4 transition',
-                item.isSoldOut && 'opacity-60',
-                qty > 0 && 'ring-2 ring-gold/60',
-              )}
-            >
-              {item.imageUrl ? (
-                <img
-                  src={item.imageUrl}
-                  alt=""
-                  loading="lazy"
-                  className="h-16 w-16 shrink-0 rounded-2xl object-cover ring-1 ring-line"
-                />
-              ) : (
-                <div className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-sand to-gold-light/40 font-display text-lg font-semibold text-gold-deep">
-                  #{item.itemNo}
-                </div>
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="font-semibold leading-snug">{name}</p>
-                <p className="text-sm text-muted">{item.packDesc}</p>
-                <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                  <span className="font-display text-lg font-semibold">
-                    {formatPaise(item.effectivePricePaise)}
-                  </span>
-                  {item.effectivePricePaise < item.pricePaise && (
-                    <>
-                      <span className="text-sm text-muted line-through">
-                        {formatPaise(item.pricePaise)}
-                      </span>
-                      <Badge tone="saffron">{t('shopPage.offer')}</Badge>
-                    </>
-                  )}
-                  <GreenBadge cert={item.greenCert} />
-                  {item.isSoldOut && <Badge tone="muted">{t('shopPage.soldOut')}</Badge>}
-                  {!item.isSoldOut && item.stockQty != null && item.stockQty <= 5 && (
-                    <Badge tone="danger">{t('shopPage.onlyLeft', { count: item.stockQty })}</Badge>
-                  )}
-                </div>
-              </div>
-              <QtyStepper
-                qty={qty}
-                name={name}
-                disabled={item.isSoldOut}
-                onChange={(n) =>
-                  setFull(
-                    !plan.setQty(
-                      item.itemNo,
-                      item.stockQty != null ? Math.min(n, item.stockQty) : n,
-                    ),
-                  )
-                }
-              />
-            </Card>
-          );
-        })}
+        {visible.map((item) => (
+          <ItemCard
+            key={item.id}
+            item={item}
+            all={items.data?.items ?? []}
+            plan={plan}
+            weights={weights}
+            onFull={setFull}
+          />
+        ))}
       </ul>
       {items.data && visible.length === 0 && <EmptyState title={t('shopPage.noMatch')} />}
 
-      {plan.count > 0 && (
+      {count > 0 && (
         <div className="fixed inset-x-0 bottom-0 z-30 p-3 sm:p-5">
           <div className="night-sky mx-auto flex max-w-3xl items-center justify-between gap-4 rounded-3xl px-5 py-4 text-white shadow-[var(--shadow-lift)] ring-1 ring-white/10">
             <div>
@@ -236,7 +178,7 @@ export function ShopPage() {
                 {t('plan.title')}
               </p>
               <p className="font-semibold">
-                {t('plan.summary', { count: plan.count, total: formatPaise(details.total) })}
+                {t('plan.summary', { count, total: formatPaise(total) })}
               </p>
             </div>
             <ButtonLink to={`/s/${code}/plan`} size="lg">

@@ -1,5 +1,13 @@
 # Changelog
 
+## Selling by weight (2026-10-19)
+
+- Items can be sold **per pack**, **per kg** (own ₹/kg) or as a **mix box of any items at a fixed ₹/kg**; prices and offers per kg, stock in grams (migration 0006).
+- Customers add weights in 250 g steps and tick the items for a mix box; the server prices grams from the catalogue.
+- Packers record the scale reading: within ±10 % it is packed as weighed; outside, the customer accepts, asks for a repack, or removes it. Bills show grams and ₹/kg.
+- Fixed while testing: the item list's ETag now includes a response-shape version, so browsers holding a cached list refetch after the item shape changes (they got a 304 with the old shape). The counter now requires the customer's QR to be scanned before the pack can be matched or paid for. Service-worker rules for the removed visit endpoints replaced.
+- Tests: 121 unit, 63 integration (7 new for weight, 2 regressions); flow walked through in the browser.
+
 ## Diwali Express Pickup — multi-merchant pickup orders (2026-10-18)
 
 SPEC_V3 (`docs/SPEC_V3_ORDERS.md`). Renamed from Festive Diwali; guardrails rewritten in CLAUDE.md.

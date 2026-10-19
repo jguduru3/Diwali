@@ -62,6 +62,26 @@ Line states: `pending → picked` · `pending → out_of_stock` (customer: remov
 
 Pricing: unit price = the item's offer price if set and not ended, else price; snapshotted on the order line when ordered. Alternatives use the alternative's current effective price. Final total = Σ picked lines.
 
+## 5a. Selling by weight
+
+Items have a **sale unit**: `pack` (default), `kg` (loose item at its own ₹/kg) or `mix_kg`
+(a box of any items the customer picks, at one fixed ₹/kg). For `kg` / `mix_kg` the item's price
+and offer price are **per kg** and tracked stock is in **grams**.
+
+- **Ordering:** weighed lines send `{ itemId, grams }` (50–50 000 g, 50 g steps; the app offers
+  250 g steps); mix lines add `mixItemIds` (the items wanted, no quantities). The server checks the
+  sale unit matches, the mix items belong to the shop and are available, and kg stock covers the
+  grams. Line amount = `round(price_per_kg × grams ÷ 1000)`.
+- **Packing:** weighed lines are not scanned per unit; the packer records the **scale reading**.
+  Within **±10 %** of the ordered weight the line is packed at the weighed amount (kg stock drops by
+  those grams; mix boxes don't touch per-item stock). Outside it the line becomes
+  `weight_proposed` and the customer must **accept** (billed as weighed), **ask for a repack**
+  (line back to pending) or **remove** it. Alternatives are for pack lines only.
+- **Bill:** weighed lines show grams and ₹/kg; totals use the packed grams.
+- Code: `SALE_UNITS` (constants.ts), `lineAmount`, `withinTolerance`, `WEIGHT_TOLERANCE`,
+  `formatGrams` (order.ts); `weighLine` (api lib/orders.ts), `POST /api/shop/orders/{id}/weigh`;
+  migration 0006.
+
 ## 6. QR codes
 
 - Customer pickup QR: `DXO1.<26 Crockford chars>`; pack sticker QR: `DXK1.<26 chars>`. 130 random bits each, SHA-256 hash stored, single order, no personal data, prices or items.
@@ -79,7 +99,7 @@ Pricing: unit price = the item's offer price if set and not ended, else price; s
 
 Issued on payment: per-shop bill number, merchant name and licence no., lines, total, payment method/reference, safety notice. Customer sees it in **My orders** (SMS/WhatsApp copy later, after DLT templates).
 
-## 9. Data (migrations 0004–0005)
+## 9. Data (migrations 0004–0006)
 
 Removed: slots, visits, visit_status, old daily stats, no-show strikes, bay count, slot settings.
 Added: item `barcode`, `stock_qty`, `offer_price_paise`, `offer_ends_at`, `image_path`; roles `shop_packer`, `shop_cashier`; `orders`, `order_lines`, `order_events`, `fee_payments`, `fee_payment_events`, `fee_refunds`, `counter_payments`, `merchant_payment_settings`, `daily_shop_stats` (orders, completed, sales_paise for the merchant's own report).

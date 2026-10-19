@@ -70,17 +70,23 @@ describe('G6 — only verified, in-date licensed shops are visible', () => {
 });
 
 describe('price list', () => {
-  it('serves active items with an ETag of the price version and honours If-None-Match', async () => {
+  it('serves active items with an ETag of the response shape + price version and honours If-None-Match', async () => {
     await makeListedShop();
     const res = await call(shopItemsHandler, { params: { code: 'slc01' } });
     const parsed = itemsResponseSchema.parse(res.jsonBody);
     expect(parsed.items).toHaveLength(4);
-    expect(res.headers).toMatchObject({ ETag: '"v1"' });
+    expect(res.headers).toMatchObject({ ETag: '"s2-v1"' });
     const again = await call(shopItemsHandler, {
+      params: { code: 'SLC01' },
+      headers: { 'if-none-match': '"s2-v1"' },
+    });
+    expect(again.status).toBe(304);
+    // A list cached before the item shape changed (same price version) is refetched, not 304'd.
+    const stale = await call(shopItemsHandler, {
       params: { code: 'SLC01' },
       headers: { 'if-none-match': '"v1"' },
     });
-    expect(again.status).toBe(304);
+    expect(stale.status).toBe(200);
   });
 
   it('owners add items; the item number is assigned and the price version bumps', async () => {

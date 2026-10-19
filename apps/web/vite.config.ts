@@ -28,9 +28,9 @@ export default defineConfig({
         navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
           {
-            // Price lists and the active ticket keep working with no signal (SPEC §15).
+            // Price lists and the customer's orders keep working with no signal (SPEC §15).
             urlPattern: ({ url }) =>
-              /^\/api\/(shops\/[^/]+\/items|shop\/items|shop\/context|visits\/current)/.test(
+              /^\/api\/(shops\/[^/]+\/items|shop\/items|shop\/context|orders\/[^/]+$)/.test(
                 url.pathname,
               ),
             handler: 'NetworkFirst',
@@ -38,15 +38,6 @@ export default defineConfig({
               cacheName: 'api-offline',
               networkTimeoutSeconds: 4,
               expiration: { maxEntries: 60, maxAgeSeconds: 2 * 24 * 3600 },
-            },
-          },
-          {
-            // "Mark served" taps made offline are replayed when the signal returns.
-            urlPattern: ({ url }) => /^\/api\/shop\/visits\/[^/]+\/serve/.test(url.pathname),
-            handler: 'NetworkOnly',
-            method: 'POST',
-            options: {
-              backgroundSync: { name: 'serve-queue', options: { maxRetentionTime: 24 * 60 } },
             },
           },
           {

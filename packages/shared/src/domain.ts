@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SALE_UNITS } from './constants';
 import { phoneSchema } from './schemas';
 
 // ---- Enums (SPEC §6.1) ----
@@ -101,6 +102,8 @@ export const itemSchema = z.object({
   greenRef: z.string(),
   rackCode: z.string().nullable(),
   imageUrl: z.string().nullable(),
+  /** pack, or kg / mix_kg (then prices are per kg and stock is in grams) */
+  saleUnit: z.enum(SALE_UNITS),
   barcode: z.string().nullable(),
   /** null = stock not tracked */
   stockQty: z.number().nullable(),
@@ -146,6 +149,7 @@ export const itemInputSchema = z
     nameTe: z.string().trim().max(80).optional(),
     packDesc: z.string().trim().max(40).optional(),
     pricePaise: z.number().int().positive().max(10_000_000),
+    saleUnit: z.enum(SALE_UNITS).optional(),
     greenCert: greenCertSchema,
     greenRef: z.string().trim().min(2, 'Green certificate reference is required').max(60),
     rackCode: z.string().trim().max(10).optional(),

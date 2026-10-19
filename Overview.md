@@ -256,6 +256,26 @@ nothing changes until the customer answers.
 `feeOutcome()` encodes it; `refundFee()` is idempotent (one live refund per payment).
 `PLATFORM_FEE_PAISE` and `CONFIRM_WINDOW_HOURS` are constants in `order.ts`.
 
+### 4.4a Selling by weight
+
+Items have a **sale unit**: `pack` (default), `kg` (loose item at its own ₹/kg) or `mix_kg`
+(a box of any items the customer picks, at one fixed ₹/kg). For `kg` / `mix_kg` the item's price
+and offer price are **per kg** and tracked stock is in **grams**.
+
+- **Ordering:** weighed lines send `{ itemId, grams }` (50–50 000 g, 50 g steps; the app offers
+  250 g steps); mix lines add `mixItemIds` (the items wanted, no quantities). The server checks the
+  sale unit matches, the mix items belong to the shop and are available, and kg stock covers the
+  grams. Line amount = `round(price_per_kg × grams ÷ 1000)`.
+- **Packing:** weighed lines are not scanned per unit; the packer records the **scale reading**.
+  Within **±10 %** of the ordered weight the line is packed at the weighed amount (kg stock drops by
+  those grams; mix boxes don't touch per-item stock). Outside it the line becomes
+  `weight_proposed` and the customer must **accept** (billed as weighed), **ask for a repack**
+  (line back to pending) or **remove** it. Alternatives are for pack lines only.
+- **Bill:** weighed lines show grams and ₹/kg; totals use the packed grams.
+- Code: `SALE_UNITS` (constants.ts), `lineAmount`, `withinTolerance`, `WEIGHT_TOLERANCE`,
+  `formatGrams` (order.ts); `weighLine` (api lib/orders.ts), `POST /api/shop/orders/{id}/weigh`;
+  migration 0006.
+
 ### 4.5 QR codes
 
 | QR                | Format                       | Where              | Contains                  |
@@ -273,7 +293,8 @@ nothing changes until the customer answers.
 
 ## 5. Data model
 
-Migrations: `0000`–`0003` (original platform), `0004_remove_slots_visits`, `0005_orders`.
+Migrations: `0000`–`0003` (original platform), `0004_remove_slots_visits`, `0005_orders`,
+`0006_sale_by_weight`.
 
 | Table                              | Purpose / key columns                                                                                                                                                                           |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
