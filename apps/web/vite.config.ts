@@ -8,48 +8,20 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
-      registerType: 'autoUpdate',
-      includeAssets: ['icon.svg'],
-      manifest: {
-        name: 'Diwali Express Pickup',
-        short_name: 'Diwali Express',
-        description: 'Order from licensed Diwali shops in Hyderabad and collect at Express Pickup.',
-        theme_color: '#140c24',
-        background_color: '#fbf7f1',
-        display: 'standalone',
-        start_url: '/',
-        icons: [
-          { src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
-          { src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
-        ],
+      // Two installable apps share one service worker (src/sw.ts: precache, offline
+      // API cache, web push). Their manifests are static files in public/; the page
+      // picks one per path (public/app-shell.js), so the plugin writes none.
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
+      registerType: 'prompt',
+      injectRegister: null,
+      manifest: false,
+      injectManifest: {
+        globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'],
+        globIgnores: ['icons/*-512.png', 'icons/*-maskable-*.png'],
       },
-      workbox: {
-        navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/api\//],
-        runtimeCaching: [
-          {
-            // Price lists and the customer's orders keep working with no signal (SPEC §15).
-            urlPattern: ({ url }) =>
-              /^\/api\/(shops\/[^/]+\/items|shop\/items|shop\/context|orders\/[^/]+$)/.test(
-                url.pathname,
-              ),
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'api-offline',
-              networkTimeoutSeconds: 4,
-              expiration: { maxEntries: 60, maxAgeSeconds: 2 * 24 * 3600 },
-            },
-          },
-          {
-            urlPattern: ({ url }) => url.hostname.endsWith('tile.openstreetmap.org'),
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'osm-tiles',
-              expiration: { maxEntries: 300, maxAgeSeconds: 7 * 24 * 3600 },
-            },
-          },
-        ],
-      },
+      devOptions: { enabled: false },
     }),
   ],
   server: {
