@@ -539,6 +539,57 @@ export const dailyShopStats = pgTable(
   (t) => [primaryKey({ columns: [t.shopId, t.day] })],
 );
 
+// ---- Web push (SPEC_V3 §11) ----
+
+/** A browser's push subscription for one installed app. Removed on sign-out, delete-me and purge. */
+export const pushSubscriptions = pgTable(
+  'push_subscriptions',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    endpoint: text('endpoint').notNull().unique(),
+    p256dh: text('p256dh').notNull(),
+    auth: text('auth').notNull(),
+    app: text('app').notNull(),
+    lang: text('lang').notNull().default('en'),
+    lastSentAt: tz('last_sent_at'),
+    ...stamps,
+  },
+  (t) => [
+    index('push_subscriptions_user').on(t.userId),
+    check('push_subscriptions_app', sql`${t.app} in ('customer', 'merchant')`),
+  ],
+);
+
+/**
+ * Notifications written in the same transaction as the order change, so a
+ * rolled-back change never notifies. Sent right after the request, and by the
+ * minute timer if that fails.
+ */
+export const pushOutbox = pgTable(
+  'push_outbox',
+  {
+    id: id(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    app: text('app').notNull(),
+    kind: text('kind').notNull(),
+    url: text('url').notNull(),
+    params: jsonb('params').notNull().default({}),
+    attempts: integer('attempts').notNull().default(0),
+    sentAt: tz('sent_at'),
+    createdAt: tz('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('push_outbox_pending')
+      .on(t.createdAt)
+      .where(sql`${t.sentAt} is null`),
+  ],
+);
+
 // ---- Views ----
 
 /** G6: shops that are live with a verified, in-date licence. Created in migration 0002. */

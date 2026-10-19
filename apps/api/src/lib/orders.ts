@@ -38,6 +38,7 @@ import {
   withinTolerance,
 } from '@pataka/shared';
 import type { Db } from '../db/client';
+import { queueOrderPush } from './push';
 import {
   categories,
   clusters,
@@ -128,6 +129,7 @@ export async function transition(
     .returning();
   if (!row) throw new HttpError(409, 'order_changed', 'This order changed. Refresh and try again.');
   await orderEvent(tx, order.id, actorId, type, { from: order.status, to, ...meta });
+  await queueOrderPush(tx, order.status, row);
   return row;
 }
 

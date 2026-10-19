@@ -50,6 +50,13 @@
       "when": 1792395179036,
       "tag": "0006_sale_by_weight",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792399664654,
+      "tag": "0007_push_notifications",
+      "breakpoints": true
     }
   ]
 }
