@@ -360,6 +360,15 @@ Base path `/api`. Bodies are JSON; mutations need `X-PP: 1`. Errors: `{ "error":
 | POST     | `/payments/youpi/{shopCode}`                | merchant's YouPI-PG events; `X-Gateway-Signature: sha256=…`  |
 | GET/POST | `/payments/mock/{checkoutId}` · `/complete` | mock provider's test page (refused in prod)                  |
 
+### Push notifications
+
+| Method | Path                | Notes                                                                 |
+| ------ | ------------------- | --------------------------------------------------------------------- |
+| GET    | `/push/key`         | VAPID public key, or `null` when push is not set up                   |
+| POST   | `/push/subscribe`   | `{endpoint, keys:{p256dh, auth}, app, lang}` (strict, https endpoint) |
+| POST   | `/push/unsubscribe` | `{endpoint}`                                                          |
+| POST   | `/push/test`        | `{app}` — a test notification to the caller's own phones              |
+
 ### Merchant (`/shop/...`, `?shop=CODE` for admins)
 
 | Method         | Path                                                                                                                        | Ability                             |
@@ -458,6 +467,7 @@ query, licence photos in a private store, merchant webhook secrets encrypted at 
 | `orderExpiry`   | hourly at :10     | `placed` orders past `confirm_by` → `expired` + full ₹30 refund                                                                                |
 | `licenceExpiry` | hourly            | expired licences → shop drops out of `visible_shops`                                                                                           |
 | `dailyStats`    | 18:25 (23:55 IST) | snapshot each shop's day into `daily_shop_stats`                                                                                               |
+| `pushOutbox`    | every minute      | sends notifications a request queued but could not deliver (see 10.1)                                                                          |
 | `purge`         | 21:30 (03:00 IST) | daily: old OTP + rate-limit rows. From season end + 90 days: anonymise customers, withdraw consents; orders/payments kept as financial records |
 
 Every job takes a `now` argument so tests can time-travel.
@@ -478,7 +488,56 @@ Every job takes a `now` argument so tests can time-travel.
   packing; the text box doubles as a keyboard-wedge input for handheld scanners.
 - **Printing** — `.print-area` / `.no-print` classes; stickers and bills print from the browser.
 - **i18n** — all copy in `i18n/en.json` and `i18n/te.json`; a test fails if keys differ.
-- **PWA** — installable; customer pickup QR cached for offline display.
+- **PWA** — two installable apps; see 10.1.
+
+### 10.1 Installable apps and notifications
+
+**Two apps, one codebase.** Customers install **Diwali Express** (`/manifest.webmanifest`, id `/`,
+plum icon). Shop staff, marshals and admins install **Diwali Express Merchant**
+(`/merchant.webmanifest`, id `/merchant`, teal icon with a shopping-bag badge, start URL
+`/merchant`, which sends each role to its screen: owner/staff → orders, packer → packing,
+cashier → counter, marshal → gate, admin → console). Both work on Android (Chrome install prompt)
+and iPhone/iPad (Safari → Share → Add to Home Screen; iOS 16.4+ for notifications).
+
+- How the page picks its app: `public/app-shell.js` (a static file, since the CSP allows no inline
+  script) sets the manifest link, `apple-touch-icon`, iOS title and theme colour before the first
+  render: paths under `/merchant`, `/shop`, `/gate`, `/admin` are the merchant app. The React
+  layout keeps them in sync on navigation (`lib/appKind.ts`). An installed merchant app stays the
+  merchant app on every page it opens (`sessionStorage dx.app`).
+- Service worker `src/sw.ts` (vite-plugin-pwa `injectManifest`): precaches the app shell and
+  icons, answers every page with `index.html` offline, keeps price lists, shop context and the
+  customer's orders (NetworkFirst, 4 s), and handles push. A new version waits until the person
+  taps **Update now**; installed apps check for one hourly.
+- On screen: install bar (Android prompt / iOS hint, "Not now" hides it for 7 days), offline
+  banner, update bar, and an error boundary that shows a reload card instead of a blank screen.
+- Icons are generated: `node scripts/make-icons.mjs` (PNG 192/512, maskable, Apple 180, 32,
+  notification badge) from `public/icon.svg`.
+
+**Web push.** Notifications go to the phones of the people involved:
+
+| When                                  | Who                   | Opens           |
+| ------------------------------------- | --------------------- | --------------- |
+| Fee paid → order `placed`             | shop owner + staff    | `/shop`         |
+| Customer answered (back to `packing`) | owner, staff, packers | `/shop/packing` |
+| `confirmed`                           | customer              | `/orders/<id>`  |
+| `awaiting_customer`                   | customer              | `/orders/<id>`  |
+| `packed` (with pack no.)              | customer              | `/orders/<id>`  |
+| `completed` (with bill no.)           | customer              | `/orders/<id>`  |
+| `rejected` / `expired`                | customer              | `/orders/<id>`  |
+
+- `transition()` queues rows in `push_outbox` **in the same transaction** as the status change,
+  so a rolled-back change never notifies. The request wrapper sends what the request queued right
+  after it succeeds; the `pushOutbox` timer (every minute) retries failures (up to 5 tries) and
+  drops anything older than an hour. Subscriptions the push service reports gone (404/410) are
+  deleted.
+- Payloads carry **no personal data** (G9): kind, language, link, and the shop name and
+  order/pack/bill numbers. The service worker turns them into text from `i18n/*.json → push.*`
+  in the language the person subscribed in.
+- People turn notifications on in **My account** (and merchants also at the bottom of the
+  orders screen). Subscriptions (`push_subscriptions`, one per browser endpoint and app) are
+  removed on sign-out, delete-me, and at the season purge.
+- Needs VAPID keys (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`; generate with
+  `npx web-push generate-vapid-keys`). Without them nothing is sent and the card says so.
 
 ---
 
@@ -524,20 +583,22 @@ sticker: DXK1.DEMXPACK000000000000000092
 
 ### 11.3 Environment variables (`apps/api/local.settings.json`)
 
-| Variable                              | Local default           | Prod                                                 |
-| ------------------------------------- | ----------------------- | ---------------------------------------------------- |
-| `DATABASE_URL`                        | local Postgres          | Key Vault                                            |
-| `JWT_SECRET`                          | dev value               | Key Vault, ≥ 32 chars                                |
-| `APP_ENV`                             | unset                   | `prod` (turns off demo, OTP dev, mock payments)      |
-| `DEMO_MODE` / `OTP_DEV_MODE`          | `true`                  | forced off                                           |
-| `ORDERING_ENABLED`                    | `true`                  | `false` until legal sign-off                         |
-| `PAYMENT_PROVIDER`                    | `mock`                  | empty until a real adapter exists                    |
-| `MOCK_PAYMENT_SECRET`                 | dev value               | not used                                             |
-| `MERCHANT_SECRETS_KEY`                | dev value               | Key Vault, ≥ 32 chars                                |
-| `PUBLIC_ORIGIN`                       | `http://localhost:5173` | `https://<domain>` (shown as merchants' webhook URL) |
-| `SEASON_END`                          | `2026-11-20`            | season end date                                      |
-| `STORAGE_ACCOUNT_NAME` / `UPLOAD_DIR` | local `.uploads`        | storage account (licences + shop-media)              |
-| `MSG91_*`                             | unused (OTP dev mode)   | OTP SMS                                              |
+| Variable                                 | Local default           | Prod                                                 |
+| ---------------------------------------- | ----------------------- | ---------------------------------------------------- |
+| `DATABASE_URL`                           | local Postgres          | Key Vault                                            |
+| `JWT_SECRET`                             | dev value               | Key Vault, ≥ 32 chars                                |
+| `APP_ENV`                                | unset                   | `prod` (turns off demo, OTP dev, mock payments)      |
+| `DEMO_MODE` / `OTP_DEV_MODE`             | `true`                  | forced off                                           |
+| `ORDERING_ENABLED`                       | `true`                  | `false` until legal sign-off                         |
+| `PAYMENT_PROVIDER`                       | `mock`                  | empty until a real adapter exists                    |
+| `MOCK_PAYMENT_SECRET`                    | dev value               | not used                                             |
+| `MERCHANT_SECRETS_KEY`                   | dev value               | Key Vault, ≥ 32 chars                                |
+| `PUBLIC_ORIGIN`                          | `http://localhost:5173` | `https://<domain>` (shown as merchants' webhook URL) |
+| `SEASON_END`                             | `2026-11-20`            | season end date                                      |
+| `STORAGE_ACCOUNT_NAME` / `UPLOAD_DIR`    | local `.uploads`        | storage account (licences + shop-media)              |
+| `MSG91_*`                                | unused (OTP dev mode)   | OTP SMS                                              |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | generated for you       | GitHub var / secret → Key Vault (push off if empty)  |
+| `VAPID_SUBJECT`                          | `mailto:push@localhost` | defaults to `PUBLIC_ORIGIN`                          |
 
 ---
 
@@ -675,7 +736,11 @@ Azure via [docs/DEPLOY.md](docs/DEPLOY.md): `deploy.yml` logs in with OIDC, appl
 Postgres 16, Key Vault, App Insights alerts, storage with private `licences` and `shop-media`
 containers), runs migrations with the admin connection, deploys the API zip and uploads the web
 build. New in this version: params `orderingEnabled` (default `false`), `paymentProvider`, and the
-secret `merchantSecretsKey` (GitHub secret `MERCHANT_SECRETS_KEY`).
+secret `merchantSecretsKey` (GitHub secret `MERCHANT_SECRETS_KEY`), and the web push keys
+`vapidPublicKey` / `vapidPrivateKey` (GitHub variable `VAPID_PUBLIC_KEY`, secret
+`VAPID_PRIVATE_KEY`). In prod the API refuses to start with a missing secret, a dev switch on, or
+ordering on with the mock fee provider ([`lib/config.ts`](apps/api/src/lib/config.ts)); the deploy
+smoke test then fails.
 
 Go-live checklist for ordering (spec §10): legal opinion · authorised fee provider adapter + sandbox
 tests · GST treatment of ₹30 · merchants' acceptance of YouPI-PG terms · Telugu review · Playwright
@@ -685,14 +750,14 @@ smoke tests · `orderingEnabled=true` in `params.prod.json`.
 
 ## 16. Known limitations and next steps
 
-| Area            | Gap                                                                                                                 |
-| --------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Fee payments    | Only the mock provider exists                                                                                       |
-| YouPI-PG        | Not tested against a real instance; refunds of sale payments are out of scope (merchant's own)                      |
-| Stock           | Decremented at scan time, not reserved at order time; packed-then-cancelled stock is not auto-restocked (by design) |
-| Notifications   | Customers must open the app to see status changes and bills (no SMS/WhatsApp/push yet)                              |
-| E2E tests       | No Playwright suite; flows were checked by hand in the browser                                                      |
-| Offline counter | Order counter needs the network (walk-in list bills work offline)                                                   |
-| Admin           | No CSV export or per-merchant settlement report yet                                                                 |
-| Infra           | Bicep not compiled locally in this session (CI compiles it)                                                         |
-| Telugu          | Needs native review                                                                                                 |
+| Area            | Gap                                                                                                                                                                          |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Fee payments    | Only the mock provider exists; prod keeps ordering off until a gateway adapter is added (14.1)                                                                               |
+| YouPI-PG        | Not tested against a real instance; refunds of sale payments are out of scope (merchant's own)                                                                               |
+| Stock           | Decremented at scan time, not reserved at order time; packed-then-cancelled stock is not auto-restocked (by design)                                                          |
+| Notifications   | Web push only (no SMS/WhatsApp). iPhone needs the app added to the Home Screen first. Not testable in the embedded browser (permission denied); covered by integration tests |
+| E2E tests       | No Playwright suite; flows were checked by hand in the browser                                                                                                               |
+| Offline counter | Order counter needs the network (walk-in list bills work offline)                                                                                                            |
+| Admin           | No CSV export or per-merchant settlement report yet                                                                                                                          |
+| Infra           | Bicep not compiled locally in this session (CI compiles it)                                                                                                                  |
+| Telugu          | Needs native review                                                                                                                                                          |

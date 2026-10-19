@@ -50,8 +50,13 @@ with required reviewers).
    | `JWT_SECRET`               | 48+ random characters (`openssl rand -base64 48`)                   |
    | `MERCHANT_SECRETS_KEY`     | 48+ random characters; encrypts merchants' YouPI-PG webhook secrets |
    | `MSG91_AUTH_KEY`           | MSG91 auth key (prod; may be empty in dev)                          |
+   | `VAPID_PRIVATE_KEY`        | web push private key (see below); empty = notifications off         |
 
    Variable `MSG91_TEMPLATE_ID`: the DLT-approved OTP template id (must contain `##otp##`/`otp`).
+
+   Web push: run `npx web-push generate-vapid-keys` once per environment. Put the public key in the
+   variable `VAPID_PUBLIC_KEY` and the private key in the secret `VAPID_PRIVATE_KEY`. Changing the
+   keys later makes every phone turn notifications on again.
 
 4. **Run the workflow** (Actions → Deploy → Run, env `dev`). The summary prints the public URL.
 
@@ -87,4 +92,7 @@ The dev site is public: treat it as a demo and never put real customer data in i
 - [ ] Holding-bay positions agreed with fire officer/police; grounds' bay counts and gate notes set.
 - [ ] Telugu strings reviewed by a native speaker.
 - [ ] `SEASON_END` correct (purge runs 90 days later).
+- [ ] VAPID keys set; on an Android phone install both apps, turn notifications on, send a test.
+- [ ] On an iPhone (iOS 16.4+): Add to Home Screen for both apps, open from the icon, turn notifications on.
+- [ ] `/api/health` answers after deploy (the API refuses to start in prod when a required secret is missing).
 - [ ] Restore drill: Postgres point-in-time restore to a new server and run `/api/health` against it.

@@ -27,7 +27,16 @@ UPI (merchant's own YouPI-PG), card or cash. Spec: [docs/SPEC_V3_ORDERS.md](docs
 | **Admin** `/admin`             | Platform team         | Orders, fees and refunds, merchant onboarding (shops, licences, payment settings, team roles), categories, blocked numbers  |
 
 Background jobs: order expiry with automatic ₹30 refund (hourly), licence expiry (hourly), daily
-stats, purge (daily OTP clean-up; customers anonymised 90 days after the season, financial records kept).
+stats, push retries (every minute), purge (daily OTP clean-up; customers anonymised 90 days after
+the season, financial records kept).
+
+**Two installable apps** (Android and iPhone, from the browser): **Diwali Express** for customers
+and **Diwali Express Merchant** (`/merchant`) for shop staff, marshals and admins. Both work
+offline for price lists and orders, and send web push notifications for order updates once turned
+on in My account. See [Overview.md §10.1](Overview.md).
+
+To try the built PWA locally (service worker, install, update): `pnpm --filter web build` then
+`pnpm --filter web preview --port 4173` with `pnpm dev` running for the API.
 
 ## Run it locally
 

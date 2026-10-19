@@ -1,5 +1,14 @@
 # Changelog
 
+## Installable apps, notifications, production hardening (2026-10-19)
+
+- **Two installable PWAs** for Android and iPhone from one codebase: **Diwali Express** for customers and **Diwali Express Merchant** for shop staff, marshals and admins (own manifest, id, teal icon, shortcuts to Orders/Packing/Counter, `/merchant` start page that sends each role to its screen). PNG icon sets incl. maskable and Apple touch icons (`scripts/make-icons.mjs`).
+- Custom service worker (`injectManifest`): precache, offline pages, offline price lists and orders, push. Install bar (Android prompt, iOS Add-to-Home-Screen hint), update bar, offline banner, error boundary.
+- **Web push**: new paid order → shop owner/staff; customer answered → packers; confirmed, needs your answer, packed (pack no.), paid (bill no.), rejected, expired → customer. Queued in `push_outbox` inside the order transaction, sent after the request, retried by a minute timer. No personal data in payloads; en/te text. Turn on in My account / merchant orders screen. Subscriptions removed on sign-out, delete-me and season purge (migration 0007).
+- **Production config check**: in prod the API refuses to start with missing secrets, demo/OTP dev switches on, or ordering on with the mock fee provider. Ordering stays off in prod until a fee gateway is added.
+- Infra: VAPID keys via Bicep + Key Vault + deploy workflow; manifests uploaded as `application/manifest+json` and purged from Front Door.
+- Tests: 135 unit (config check, push text), 73 integration (10 new for push). Checked in the browser on a production build: merchant/customer manifest switching, update flow, install bar, offline banner.
+
 ## Selling by weight (2026-10-19)
 
 - Items can be sold **per pack**, **per kg** (own ₹/kg) or as a **mix box of any items at a fixed ₹/kg**; prices and offers per kg, stock in grams (migration 0006).

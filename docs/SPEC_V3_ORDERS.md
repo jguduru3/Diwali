@@ -99,7 +99,7 @@ and offer price are **per kg** and tracked stock is in **grams**.
 
 Issued on payment: per-shop bill number, merchant name and licence no., lines, total, payment method/reference, safety notice. Customer sees it in **My orders** (SMS/WhatsApp copy later, after DLT templates).
 
-## 9. Data (migrations 0004–0006)
+## 9. Data (migrations 0004–0007)
 
 Removed: slots, visits, visit_status, old daily stats, no-show strikes, bay count, slot settings.
 Added: item `barcode`, `stock_qty`, `offer_price_paise`, `offer_ends_at`, `image_path`; roles `shop_packer`, `shop_cashier`; `orders`, `order_lines`, `order_events`, `fee_payments`, `fee_payment_events`, `fee_refunds`, `counter_payments`, `merchant_payment_settings`, `daily_shop_stats` (orders, completed, sales_paise for the merchant's own report).
@@ -107,3 +107,52 @@ Added: item `barcode`, `stock_qty`, `offer_price_paise`, `offer_ends_at`, `image
 ## 10. Compliance gate
 
 Before `ORDERING_ENABLED=true` in prod: legal opinion on online orders for licensed firecracker retail (SC orders, Explosives Rules, Telangana police licence conditions); an RBI-authorised provider for the ₹30 with refunds; GST on the fee; merchant acceptance of YouPI-PG terms.
+
+## 11. Installable apps and notifications
+
+**Two apps, one codebase.** Customers install **Diwali Express** (`/manifest.webmanifest`, id `/`,
+plum icon). Shop staff, marshals and admins install **Diwali Express Merchant**
+(`/merchant.webmanifest`, id `/merchant`, teal icon with a shopping-bag badge, start URL
+`/merchant`, which sends each role to its screen: owner/staff → orders, packer → packing,
+cashier → counter, marshal → gate, admin → console). Both work on Android (Chrome install prompt)
+and iPhone/iPad (Safari → Share → Add to Home Screen; iOS 16.4+ for notifications).
+
+- How the page picks its app: `public/app-shell.js` (a static file, since the CSP allows no inline
+  script) sets the manifest link, `apple-touch-icon`, iOS title and theme colour before the first
+  render: paths under `/merchant`, `/shop`, `/gate`, `/admin` are the merchant app. The React
+  layout keeps them in sync on navigation (`lib/appKind.ts`). An installed merchant app stays the
+  merchant app on every page it opens (`sessionStorage dx.app`).
+- Service worker `src/sw.ts` (vite-plugin-pwa `injectManifest`): precaches the app shell and
+  icons, answers every page with `index.html` offline, keeps price lists, shop context and the
+  customer's orders (NetworkFirst, 4 s), and handles push. A new version waits until the person
+  taps **Update now**; installed apps check for one hourly.
+- On screen: install bar (Android prompt / iOS hint, "Not now" hides it for 7 days), offline
+  banner, update bar, and an error boundary that shows a reload card instead of a blank screen.
+- Icons are generated: `node scripts/make-icons.mjs` (PNG 192/512, maskable, Apple 180, 32,
+  notification badge) from `public/icon.svg`.
+
+**Web push.** Notifications go to the phones of the people involved:
+
+| When                                  | Who                   | Opens           |
+| ------------------------------------- | --------------------- | --------------- |
+| Fee paid → order `placed`             | shop owner + staff    | `/shop`         |
+| Customer answered (back to `packing`) | owner, staff, packers | `/shop/packing` |
+| `confirmed`                           | customer              | `/orders/<id>`  |
+| `awaiting_customer`                   | customer              | `/orders/<id>`  |
+| `packed` (with pack no.)              | customer              | `/orders/<id>`  |
+| `completed` (with bill no.)           | customer              | `/orders/<id>`  |
+| `rejected` / `expired`                | customer              | `/orders/<id>`  |
+
+- `transition()` queues rows in `push_outbox` **in the same transaction** as the status change,
+  so a rolled-back change never notifies. The request wrapper sends what the request queued right
+  after it succeeds; the `pushOutbox` timer (every minute) retries failures (up to 5 tries) and
+  drops anything older than an hour. Subscriptions the push service reports gone (404/410) are
+  deleted.
+- Payloads carry **no personal data** (G9): kind, language, link, and the shop name and
+  order/pack/bill numbers. The service worker turns them into text from `i18n/*.json → push.*`
+  in the language the person subscribed in.
+- People turn notifications on in **My account** (and merchants also at the bottom of the
+  orders screen). Subscriptions (`push_subscriptions`, one per browser endpoint and app) are
+  removed on sign-out, delete-me, and at the season purge.
+- Needs VAPID keys (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`; generate with
+  `npx web-push generate-vapid-keys`). Without them nothing is sent and the card says so.
