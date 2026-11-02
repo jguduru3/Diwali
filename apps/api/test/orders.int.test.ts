@@ -476,6 +476,26 @@ describe('Express Pickup counter', () => {
     expect(errorCode(again)).toBe('already_collected');
   });
 
+  it('the pack cannot be matched or paid before the customer QR is scanned', async () => {
+    const shop = await makeListedShop();
+    const p = await packedOrder(shop, [[1, 1]]);
+    const id = { params: { id: p.order.id } };
+    const early = await call(counterPackHandler, {
+      method: 'POST',
+      session: shop.cashier.session,
+      ...id,
+      body: { qr: p.sticker.qr },
+    });
+    expect(errorCode(early)).toBe('scan_customer_first');
+    const cash = await call(counterCashHandler, {
+      method: 'POST',
+      session: shop.cashier.session,
+      ...id,
+      body: { receivedPaise: 50000 },
+    });
+    expect(errorCode(cash)).toBe('pack_not_matched');
+  });
+
   it('refuses a pickup QR from another shop and the pack sticker scanned first', async () => {
     const a = await makeListedShop('SLC01');
     const b = await makeListedShop('BAL01');
@@ -499,6 +519,11 @@ describe('Express Pickup counter', () => {
     const ready = async () => {
       const p = await packedOrder(shop, [[1, 1]]);
       const id = { params: { id: p.order.id } };
+      await call(counterOpenHandler, {
+        method: 'POST',
+        session: shop.cashier.session,
+        body: { qr: p.pickupQr },
+      });
       await call(counterPackHandler, {
         method: 'POST',
         session: shop.cashier.session,
@@ -599,6 +624,11 @@ describe('Express Pickup counter', () => {
       const ready = async () => {
         const p = await packedOrder(shop, [[1, 1]]);
         const id = { params: { id: p.order.id } };
+        await call(counterOpenHandler, {
+          method: 'POST',
+          session: shop.cashier.session,
+          body: { qr: p.pickupQr },
+        });
         await call(counterPackHandler, {
           method: 'POST',
           session: shop.cashier.session,

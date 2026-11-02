@@ -76,6 +76,25 @@ export const env = {
     if (this.isProd()) throw new Error('The mock payment provider is not allowed in prod');
     return process.env.MOCK_PAYMENT_SECRET || 'dev-only-mock-payment-secret';
   },
+  /**
+   * VAPID keys for web push (generate once: npx web-push generate-vapid-keys).
+   * Without them, notifications are queued but not sent.
+   */
+  vapid(): { publicKey: string; privateKey: string; subject: string } | null {
+    const publicKey = process.env.VAPID_PUBLIC_KEY;
+    const privateKey = process.env.VAPID_PRIVATE_KEY;
+    if (!publicKey || !privateKey || privateKey === 'not-set') return null;
+    return {
+      publicKey,
+      privateKey,
+      // Push services contact this address about problems; Apple requires mailto: or https:.
+      subject:
+        process.env.VAPID_SUBJECT ||
+        (this.publicOrigin().startsWith('https://')
+          ? this.publicOrigin()
+          : 'mailto:push@localhost'),
+    };
+  },
   storageAccountName(): string | undefined {
     return process.env.STORAGE_ACCOUNT_NAME || undefined;
   },

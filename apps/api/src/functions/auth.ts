@@ -5,6 +5,7 @@ import { CONSENT_PURPOSE, otpRequestSchema, otpVerifySchema } from '@pataka/shar
 import { getDb, type Db } from '../db/client';
 import { consents, otpRequests, users } from '../db/schema';
 import { audit } from '../lib/audit';
+import { removeAllForUser } from '../lib/push';
 import { clearSessionCookie, getSessionUser, sessionCookie, signSession } from '../lib/auth';
 import { HttpError } from '../lib/errors';
 import { clientIp, parseBody, route } from '../lib/http';
@@ -127,6 +128,8 @@ export async function logoutHandler(req: HttpRequest, db: Db = getDb()): Promise
       .update(users)
       .set({ tokenVersion: sql`${users.tokenVersion} + 1` })
       .where(eq(users.id, user.id));
+    // Signed out everywhere: this phone stops getting order notifications too.
+    await removeAllForUser(db, user.id);
     await audit(db, {
       actorUserId: user.id,
       action: 'auth.logout',

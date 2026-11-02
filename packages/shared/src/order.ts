@@ -5,6 +5,7 @@
  */
 import { z } from 'zod';
 import { shopCodeSchema } from './domain';
+import { SALE_UNITS, type SaleUnit } from './constants';
 import { MAX_LINE_QTY, VISIT_CODE_ALPHABET } from './qr';
 
 // ---- Platform fee (SPEC_V3 §4) ----
@@ -39,8 +40,29 @@ export const LINE_STATUSES = [
   'alternate_proposed',
   'replaced',
   'removed',
+  'weight_proposed',
 ] as const;
 export type LineStatus = (typeof LINE_STATUSES)[number];
+
+/** kg and mix_kg items are weighed at packing (SALE_UNITS in constants.ts). */
+export const isWeighed = (unit: SaleUnit) => unit !== 'pack';
+
+/** Customers order weights in these steps (the API accepts any 50 g step). */
+export const WEIGHT_STEP_GRAMS = 250;
+export const MIN_WEIGHT_GRAMS = 50;
+export const MAX_WEIGHT_GRAMS = 50_000;
+/** A packed weight within ±10 % of the order is billed as weighed; outside it, the customer decides. */
+export const WEIGHT_TOLERANCE = 0.1;
+
+export function withinTolerance(orderedGrams: number, packedGrams: number): boolean {
+  return Math.abs(packedGrams - orderedGrams) <= orderedGrams * WEIGHT_TOLERANCE;
+}
+
+/** "250 g", "1 kg", "1.25 kg" */
+export function formatGrams(grams: number): string {
+  if (grams < 1000) return `${grams} g`;
+  return `${Number((grams / 1000).toFixed(3))} kg`;
+}
 
 export const FEE_PAYMENT_STATUSES = ['created', 'captured', 'failed'] as const;
 export const FEE_REFUND_STATUSES = ['pending', 'processed', 'failed'] as const;
@@ -90,16 +112,41 @@ export function effectivePrice(
   return offerPricePaise;
 }
 
+/** Line amount in paise: units × price, or grams × price-per-kg ÷ 1000 (rounded to the paisa). */
+export function lineAmount(unitPricePaise: number, size: { qty: number } | { grams: number }) {
+  return 'grams' in size
+    ? Math.round((unitPricePaise * size.grams) / 1000)
+    : unitPricePaise * size.qty;
+}
+
 export function finalTotal(
-  lines: { status: LineStatus; unitPricePaise: number; pickedQty: number }[],
+  lines: {
+    status: LineStatus;
+    unitPricePaise: number;
+    pickedQty: number;
+    packedGrams?: number | null;
+  }[],
 ): number {
   return lines
     .filter((l) => l.status === 'picked')
-    .reduce((sum, l) => sum + l.unitPricePaise * l.pickedQty, 0);
+    .reduce(
+      (sum, l) =>
+        sum +
+        lineAmount(
+          l.unitPricePaise,
+          l.packedGrams != null ? { grams: l.packedGrams } : { qty: l.pickedQty },
+        ),
+      0,
+    );
 }
 
 export const needsCustomer = (lines: { status: LineStatus }[]) =>
-  lines.some((l) => l.status === 'out_of_stock' || l.status === 'alternate_proposed');
+  lines.some(
+    (l) =>
+      l.status === 'out_of_stock' ||
+      l.status === 'alternate_proposed' ||
+      l.status === 'weight_proposed',
+  );
 
 export const readyToPack = (lines: { status: LineStatus }[]) =>
   lines.every((l) => l.status === 'picked' || l.status === 'removed' || l.status === 'replaced') &&
@@ -142,17 +189,35 @@ export const staffPhoneMask = (phoneE164: string) =>
 
 export const MAX_ORDER_LINES = 40;
 
+export const gramsSchema = z
+  .number()
+  .int()
+  .min(MIN_WEIGHT_GRAMS)
+  .max(MAX_WEIGHT_GRAMS)
+  .refine((g) => g % 50 === 0, { message: 'Weight in 50 g steps' });
+
 export const placeOrderSchema = z
   .object({
     shopCode: shopCodeSchema,
     lines: z
       .array(
-        z
-          .object({
-            itemId: z.string().uuid(),
-            qty: z.number().int().min(1).max(MAX_LINE_QTY),
-          })
-          .strict(),
+        z.union([
+          // sold by the pack
+          z
+            .object({
+              itemId: z.string().uuid(),
+              qty: z.number().int().min(1).max(MAX_LINE_QTY),
+            })
+            .strict(),
+          // sold by weight; mixItemIds = what the customer wants in a mix box
+          z
+            .object({
+              itemId: z.string().uuid(),
+              grams: gramsSchema,
+              mixItemIds: z.array(z.string().uuid()).min(1).max(MAX_ORDER_LINES).optional(),
+            })
+            .strict(),
+        ]),
       )
       .min(1)
       .max(MAX_ORDER_LINES)
@@ -175,6 +240,18 @@ export const optionalReasonSchema = z
 
 export const packScanSchema = z.object({ barcode: z.string().trim().min(1).max(64) }).strict();
 export const lineRefSchema = z.object({ lineId: z.string().uuid() }).strict();
+/** Packer records what the scale shows for a weighed line. */
+export const weighSchema = z
+  .object({
+    lineId: z.string().uuid(),
+    grams: z
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_WEIGHT_GRAMS * 2),
+  })
+  .strict();
+export type Weigh = z.input<typeof weighSchema>;
 export const proposeAlternateSchema = z
   .object({
     lineId: z.string().uuid(),
@@ -220,6 +297,7 @@ const iso = z.string();
 export const orderStatusSchema = z.enum(ORDER_STATUSES);
 export const lineStatusSchema = z.enum(LINE_STATUSES);
 export const counterMethodSchema = z.enum(COUNTER_METHODS);
+export const saleUnitSchema = z.enum(SALE_UNITS);
 
 export const orderLineSchema = z.object({
   id: z.string().uuid(),
@@ -230,10 +308,20 @@ export const orderLineSchema = z.object({
   nameTe: z.string().nullable(),
   packDesc: z.string().nullable(),
   imageUrl: z.string().nullable(),
+  /** pack: qty units at unitPricePaise each; kg / mix_kg: unitPricePaise is per kg */
+  saleUnit: saleUnitSchema,
   qty: z.number(),
   unitPricePaise: z.number(),
   status: lineStatusSchema,
   pickedQty: z.number(),
+  orderedGrams: z.number().nullable(),
+  packedGrams: z.number().nullable(),
+  /** weighed amount outside the tolerance, waiting for the customer */
+  proposedGrams: z.number().nullable(),
+  /** mix box: the items the customer asked for */
+  mixItems: z.array(
+    z.object({ itemId: z.string().uuid(), nameEn: z.string(), nameTe: z.string().nullable() }),
+  ),
   /** set on a line that replaced another */
   replacesLineId: z.string().uuid().nullable(),
   alternate: z
@@ -270,6 +358,8 @@ export const billSchema = z.object({
     z.object({
       nameEn: z.string(),
       qty: z.number(),
+      /** weighed lines: billed grams; unitPricePaise is then per kg */
+      grams: z.number().nullable(),
       unitPricePaise: z.number(),
       totalPaise: z.number(),
     }),

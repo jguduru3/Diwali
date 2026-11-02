@@ -8,6 +8,8 @@ import {
   otpRequests,
   rateLimits,
   shopLicences,
+  pushOutbox,
+  pushSubscriptions,
   shops,
   users,
 } from '../db/schema';
@@ -109,7 +111,10 @@ export async function purge(db: Db, now = new Date(), dryRun = false): Promise<P
   await db.transaction(async (tx) => {
     await tx.delete(otpRequests).where(seasonOver ? undefined : otpOld);
     await tx.delete(rateLimits).where(rlOld);
+    // Sent or dropped notifications are not kept; at season end, devices are forgotten too.
+    await tx.delete(pushOutbox).where(seasonOver ? undefined : lt(pushOutbox.createdAt, dayAgo));
     if (seasonOver) {
+      await tx.delete(pushSubscriptions);
       const anon = await tx
         .update(users)
         .set({

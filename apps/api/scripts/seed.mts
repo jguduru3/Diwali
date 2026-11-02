@@ -369,6 +369,53 @@ for (const s of shopDefs) {
       .values(values)
       .onConflictDoUpdate({ target: [items.shopId, items.itemNo], set: values });
   }
+  // Sold by weight at SLC01: a loose item at its own ₹/kg, and a mix box of any items at a fixed ₹/kg.
+  if (s.code === 'SLC01') {
+    const weighed = [
+      {
+        slug: 'flower-pots',
+        nameEn: 'Loose Flower Pots',
+        nameTe: 'విడి చిచ్చుబుడ్లు',
+        packDesc: 'per kg',
+        pricePaise: 60000,
+        saleUnit: 'kg' as const,
+        stockQty: 20_000,
+        barcode: '8919001',
+      },
+      {
+        slug: 'sparklers',
+        nameEn: 'Mix box — any crackers by weight',
+        nameTe: 'మిక్స్ బాక్స్ — ఏ టపాసులైనా బరువు ప్రకారం',
+        packDesc: 'per kg, your choice of items',
+        pricePaise: 70000,
+        saleUnit: 'mix_kg' as const,
+        stockQty: null,
+        barcode: null,
+      },
+    ];
+    for (const w of weighed) {
+      itemNo++;
+      const values = {
+        shopId,
+        itemNo,
+        categoryId: catId.get(w.slug)!,
+        nameEn: w.nameEn,
+        nameTe: w.nameTe,
+        packDesc: w.packDesc,
+        pricePaise: w.pricePaise,
+        saleUnit: w.saleUnit,
+        stockQty: w.stockQty,
+        barcode: w.barcode,
+        greenCert: 'CSIR_NEERI_SWAS' as GreenCert,
+        greenRef: `NEERI-SWAS-26-W${itemNo}`,
+        rackCode: 'W1',
+      };
+      await db
+        .insert(items)
+        .values(values)
+        .onConflictDoUpdate({ target: [items.shopId, items.itemNo], set: values });
+    }
+  }
   await db.insert(shopPriceVersions).values({ shopId, version: 1 }).onConflictDoNothing();
 }
 

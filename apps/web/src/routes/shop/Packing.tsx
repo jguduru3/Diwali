@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  formatGrams,
   formatPaise,
+  withinTolerance,
   type PackSticker,
   type StaffOrder,
   type StaffOrderLine,
@@ -33,6 +35,7 @@ import {
   useShopOrder,
   useShopOrders,
   useStartPacking,
+  useWeighLine,
 } from '../../lib/queries';
 
 /** Printed and stuck on the pack; the cashier scans it at Express Pickup. */
@@ -85,17 +88,30 @@ function LineRow({ order, line }: { order: StaffOrder; line: StaffOrderLine }) {
   const pick = usePickByHand();
   const oos = useOutOfStock();
   const alt = useProposeAlternate();
+  const weigh = useWeighLine();
+  const [grams, setGrams] = useState('');
+  const weighed = line.saleUnit !== 'pack';
+  const typed = Number(grams);
+  const outside =
+    weighed && typed > 0 && line.orderedGrams != null && !withinTolerance(line.orderedGrams, typed);
   const [proposing, setProposing] = useState(false);
   const [altId, setAltId] = useState('');
   const [altQty, setAltQty] = useState(String(line.qty - line.pickedQty));
   const canAct = order.status === 'packing' && line.status === 'pending';
   const choices = (items.data?.items ?? []).filter(
-    (i) => i.id !== line.itemId && i.isActive && !i.isSoldOut && i.stockQty !== 0,
+    (i) =>
+      i.id !== line.itemId &&
+      i.isActive &&
+      !i.isSoldOut &&
+      i.stockQty !== 0 &&
+      i.saleUnit === 'pack',
   );
   return (
     <li className={cx('px-5 py-4', line.status === 'picked' && 'bg-emerald-soft/40')}>
       <div className="flex flex-wrap items-center gap-3">
-        <span className="font-display text-3xl font-semibold text-plum">{line.qty}×</span>
+        <span className="font-display text-3xl font-semibold text-plum">
+          {weighed ? formatGrams(line.orderedGrams ?? 0) : `${line.qty}×`}
+        </span>
         <div className="min-w-0 flex-1">
           <p className="text-lg font-semibold">{itemName(line)}</p>
           <p className="text-sm text-muted">
@@ -103,18 +119,64 @@ function LineRow({ order, line }: { order: StaffOrder; line: StaffOrderLine }) {
             {line.rackCode && ` · ${t('packing.rack', { rack: line.rackCode })}`}
             {line.barcode && ` · ▥ ${line.barcode}`}
           </p>
+          {line.mixItems.length > 0 && (
+            <p className="text-sm">
+              {t('weight.mixOf', { items: line.mixItems.map((m) => itemName(m)).join(', ') })}
+            </p>
+          )}
         </div>
         <Badge
           tone={
             line.status === 'picked' ? 'emerald' : line.status === 'pending' ? 'muted' : 'saffron'
           }
         >
-          {line.status === 'pending' || line.status === 'picked'
-            ? t('packing.scanned', { picked: line.pickedQty, qty: line.qty })
-            : t(`lineStatus.${line.status}`)}
+          {weighed && line.status === 'picked'
+            ? formatGrams(line.packedGrams ?? 0)
+            : weighed && line.status === 'pending'
+              ? t('weight.toWeigh')
+              : line.status === 'pending' || line.status === 'picked'
+                ? t('packing.scanned', { picked: line.pickedQty, qty: line.qty })
+                : t(`lineStatus.${line.status}`)}
         </Badge>
       </div>
-      {canAct && (
+      {canAct && weighed && (
+        <form
+          className="mt-3 flex flex-wrap items-end gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (typed > 0) {
+              weigh.mutate(
+                { id: order.id, body: { lineId: line.id, grams: Math.round(typed) } },
+                { onSuccess: () => setGrams('') },
+              );
+            }
+          }}
+        >
+          <Field label={t('weight.scale')} hint={t('weight.tolerance')} className="w-48">
+            <Input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              required
+              value={grams}
+              onChange={(e) => setGrams(e.target.value)}
+            />
+          </Field>
+          <Button variant={outside ? 'secondary' : 'success'} disabled={weigh.isPending}>
+            {outside ? t('weight.askCustomer') : t('weight.record')}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            disabled={oos.isPending}
+            onClick={() => oos.mutate({ id: order.id, body: { lineId: line.id } })}
+          >
+            {t('packing.outOfStock')}
+          </Button>
+        </form>
+      )}
+      {canAct && !weighed && (
         <div className="mt-3 flex flex-wrap gap-2">
           {!line.barcode && (
             <Button
@@ -175,7 +237,7 @@ function LineRow({ order, line }: { order: StaffOrder; line: StaffOrderLine }) {
           <Button disabled={alt.isPending || !altId}>{t('packing.sendAlt')}</Button>
         </form>
       )}
-      <ErrorText error={pick.error ?? oos.error ?? alt.error} />
+      <ErrorText error={pick.error ?? oos.error ?? alt.error ?? weigh.error} />
     </li>
   );
 }

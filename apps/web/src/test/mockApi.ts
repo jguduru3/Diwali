@@ -67,6 +67,7 @@ export const itemsResponse: ItemsResponse = {
     greenRef: `R${n}`,
     rackCode: n === 3 ? 'B1' : 'A1',
     imageUrl: null,
+    saleUnit: 'pack' as const,
     barcode: `89100${n}`,
     stockQty: null,
     offerPricePaise: null,

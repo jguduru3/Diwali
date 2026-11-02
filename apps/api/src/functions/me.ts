@@ -6,6 +6,7 @@ import { audit } from '../lib/audit';
 import { clearSessionCookie, requireUser } from '../lib/auth';
 import { route } from '../lib/http';
 import { toMe } from '../lib/members';
+import { removeAllForUser } from '../lib/push';
 
 /** GET /api/me — 401 when signed out. */
 export async function getMeHandler(req: HttpRequest, db: Db = getDb()): Promise<HttpResponseInit> {
@@ -39,6 +40,7 @@ export async function deleteMeHandler(
       .where(and(eq(consents.userId, user.id), isNull(consents.withdrawnAt)));
     await tx.delete(shopMembers).where(eq(shopMembers.userId, user.id));
     await tx.delete(clusterMarshals).where(eq(clusterMarshals.userId, user.id));
+    await removeAllForUser(tx, user.id);
     await audit(tx, {
       actorUserId: user.id,
       action: 'user.delete_self',

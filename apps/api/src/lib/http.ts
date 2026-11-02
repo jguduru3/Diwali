@@ -7,7 +7,9 @@ import {
 } from '@azure/functions';
 import { CSRF_HEADER } from '@pataka/shared';
 import { ZodError, type ZodType, type ZodTypeDef } from 'zod';
+import { getDb } from '../db/client';
 import { errorResponse, HttpError } from './errors';
+import { drainQuietly } from './push';
 
 type Handler = (req: HttpRequest, ctx: InvocationContext) => Promise<HttpResponseInit>;
 
@@ -50,7 +52,10 @@ export function route(handler: Handler): Handler {
       if (MUTATING.has(req.method) && req.headers.get(CSRF_HEADER) !== '1') {
         throw new HttpError(403, 'csrf', 'Missing request header');
       }
-      return await handler(req, ctx);
+      const res = await handler(req, ctx);
+      // Send the notifications this request queued (the minute timer is the backstop).
+      await drainQuietly(getDb(), (e) => ctx.error(e));
+      return res;
     } catch (err) {
       const mapped = err instanceof HttpError ? err : mapPgError(err);
       if (mapped) return errorResponse(mapped.status, mapped.code, mapped.message);

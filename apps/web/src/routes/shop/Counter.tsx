@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   decodePlan,
+  formatGrams,
   formatPaise,
+  lineAmount,
   parseOrderQr,
   rupeesToPaise,
   type PlanPayload,
@@ -214,9 +216,19 @@ function OrderAtCounter({ initial, onNext }: { initial: StaffOrder; onNext: () =
             {picked.map((l) => (
               <li key={l.id} className="flex justify-between py-2 text-sm">
                 <span>
-                  <span className="font-semibold">{l.pickedQty}×</span> {itemName(l)}
+                  <span className="font-semibold">
+                    {l.packedGrams != null ? formatGrams(l.packedGrams) : `${l.pickedQty}×`}
+                  </span>{' '}
+                  {itemName(l)}
                 </span>
-                <span>{formatPaise(l.unitPricePaise * l.pickedQty)}</span>
+                <span>
+                  {formatPaise(
+                    lineAmount(
+                      l.unitPricePaise,
+                      l.packedGrams != null ? { grams: l.packedGrams } : { qty: l.pickedQty },
+                    ),
+                  )}
+                </span>
               </li>
             ))}
           </ul>
