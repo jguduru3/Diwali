@@ -19,7 +19,9 @@ import {
   merchantPaymentSettingsSchema,
   packScanSchema,
   proposeAlternateSchema,
+  qrImageUploadSchema,
   qrInputSchema,
+  qrPaymentSchema,
   reasonSchema,
   shopSettingsSchema,
   soldOutSchema,
@@ -51,6 +53,7 @@ import {
   pollUpi,
   recordCard,
   recordCash,
+  recordQrPayment,
   startUpi,
 } from '../lib/counter';
 import { env } from '../lib/env';
@@ -70,9 +73,9 @@ import {
 } from '../lib/orders';
 import { clusterView } from '../lib/places';
 import { rateLimit } from '../lib/rateLimit';
-import { footfall, licenceView } from '../lib/reports';
+import { footfall, formatShopAnalyticsCsv, licenceView, shopAnalytics } from '../lib/reports';
 import { encryptSecret } from '../lib/secrets';
-import { fileStore, itemImagePath, licenceBlobPath, sniffImage } from '../lib/storage';
+import { fileStore, itemImagePath, licenceBlobPath, qrImagePath, sniffImage } from '../lib/storage';
 
 // ---- Context ----
 
@@ -411,6 +414,15 @@ export async function counterCashHandler(req: HttpRequest): Promise<HttpResponse
   return json(await recordCash(getDb(), shop, user.id, requireUuidParam(req, 'id'), receivedPaise));
 }
 
+/** POST /api/shop/counter/{id}/qr {reference?} — customer pays via PhonePe QR; cashier confirms. */
+export async function counterQrHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const { user, shop } = await cashier(req);
+  const input = await parseBody(req, qrPaymentSchema);
+  return json(
+    await recordQrPayment(getDb(), shop, user.id, requireUuidParam(req, 'id'), input.reference),
+  );
+}
+
 // ---- Counter payment settings (owner; the platform team can also set them) ----
 
 export async function settingsView(db: Db, shop: ShopRow): Promise<MerchantPaymentSettings> {
@@ -423,6 +435,9 @@ export async function settingsView(db: Db, shop: ShopRow): Promise<MerchantPayme
     acceptsCard: s.acceptsCard,
     acceptsCash: s.acceptsCash,
     webhookUrl: `${env.publicOrigin()}/api/payments/youpi/${shop.shortCode}`,
+    qrImageUrl: s.qrImagePath ? `/api/media/${s.qrImagePath}` : null,
+    qrActive: s.qrActive ?? true,
+    qrUploadedAt: s.qrUploadedAt?.toISOString() ?? null,
   };
 }
 
@@ -432,9 +447,10 @@ export async function saveSettings(
   actorId: string,
   input: z.infer<typeof merchantPaymentSettingsSchema>,
 ) {
-  const { youpiWebhookSecret, ...rest } = input;
+  const { youpiWebhookSecret, qrActive, ...rest } = input;
   const values = {
     ...rest,
+    ...(qrActive !== undefined ? { qrActive } : {}),
     ...(youpiWebhookSecret ? { youpiWebhookSecretEnc: encryptSecret(youpiWebhookSecret) } : {}),
   };
   await db
@@ -451,10 +467,10 @@ export async function saveSettings(
   return settingsView(db, shop);
 }
 
-/** GET /api/shop/payment-settings */
+/** GET /api/shop/payment-settings — accessible to cashiers and owners. */
 export async function paymentSettingsGetHandler(req: HttpRequest): Promise<HttpResponseInit> {
   const db = getDb();
-  const { shop } = await requireShop(db, req, { ownerOnly: true });
+  const { shop } = await requireShop(db, req, { can: 'counter' });
   return json(await settingsView(db, shop));
 }
 
@@ -464,6 +480,102 @@ export async function paymentSettingsPutHandler(req: HttpRequest): Promise<HttpR
   const { user, shop } = await requireShop(db, req, { ownerOnly: true });
   const input = await parseBody(req, merchantPaymentSettingsSchema);
   return json(await saveSettings(db, shop, user.id, input));
+}
+
+/** POST /api/shop/payment-settings/qr {base64} — upload PhonePe payment QR. */
+export async function shopPaymentSettingsQrHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const db = getDb();
+  const { user, shop } = await requireShop(db, req, { ownerOnly: true });
+  const input = await parseBody(req, qrImageUploadSchema);
+  const base64Str = input.base64.replace(/^data:image\/[a-z]+;base64,/, '');
+  const data = Buffer.from(base64Str, 'base64');
+  const type = sniffImage(data);
+  if (!type || data.length > 5 * 1024 * 1024) {
+    throw new HttpError(400, 'bad_image', 'Upload a JPEG, PNG or WebP photo up to 5 MB');
+  }
+  const ext = type.split('/')[1] === 'jpeg' ? 'jpeg' : type.split('/')[1]!;
+  const path = qrImagePath(shop.id, randomUUID(), ext);
+  await fileStore('shop-media').put(path, data, type);
+  const now = new Date();
+  await db
+    .insert(merchantPaymentSettings)
+    .values({
+      shopId: shop.id,
+      qrImagePath: path,
+      qrUploadedBy: user.id,
+      qrUploadedAt: now,
+      qrActive: true,
+    })
+    .onConflictDoUpdate({
+      target: merchantPaymentSettings.shopId,
+      set: {
+        qrImagePath: path,
+        qrUploadedBy: user.id,
+        qrUploadedAt: now,
+        qrActive: true,
+        updatedAt: now,
+      },
+    });
+  await audit(db, {
+    actorUserId: user.id,
+    action: 'shop.payment_settings_qr_upload',
+    entity: 'shop',
+    entityId: shop.id,
+    meta: { path },
+  });
+  return json(await settingsView(db, shop));
+}
+
+/** DELETE /api/shop/payment-settings/qr — deactivate payment QR. */
+export async function shopPaymentSettingsQrDeleteHandler(
+  req: HttpRequest,
+): Promise<HttpResponseInit> {
+  const db = getDb();
+  const { user, shop } = await requireShop(db, req, { ownerOnly: true });
+  await db
+    .update(merchantPaymentSettings)
+    .set({ qrActive: false, updatedAt: new Date() })
+    .where(eq(merchantPaymentSettings.shopId, shop.id));
+  await audit(db, {
+    actorUserId: user.id,
+    action: 'shop.payment_settings_qr_delete',
+    entity: 'shop',
+    entityId: shop.id,
+  });
+  return json(await settingsView(db, shop));
+}
+
+/** GET /api/shop/analytics?from=&to=&cashierId=&method= — complete merchant analytics. */
+export async function shopAnalyticsHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const db = getDb();
+  const { shop } = await requireShop(db, req, { ownerOnly: true });
+  const from = req.query.get('from')?.trim() || istDate();
+  const to = req.query.get('to')?.trim() || istDate();
+  const cashierId = req.query.get('cashierId')?.trim() || undefined;
+  const method = req.query.get('method')?.trim() || undefined;
+  const data = await shopAnalytics(db, shop.id, { from, to, cashierId, method });
+  return json(data);
+}
+
+/** GET /api/shop/analytics/export?from=&to=&cashierId=&method= — Excel-compatible CSV export. */
+export async function shopAnalyticsExportHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const db = getDb();
+  const { shop } = await requireShop(db, req, { ownerOnly: true });
+  const from = req.query.get('from')?.trim() || istDate();
+  const to = req.query.get('to')?.trim() || istDate();
+  const cashierId = req.query.get('cashierId')?.trim() || undefined;
+  const method = req.query.get('method')?.trim() || undefined;
+  const data = await shopAnalytics(db, shop.id, { from, to, cashierId, method });
+  const csv = formatShopAnalyticsCsv(data, shop);
+  return {
+    status: 200,
+    body: csv,
+    headers: {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="sales-${shop.shortCode}-${from}-to-${to}.csv"`,
+      'Cache-Control': 'no-store',
+    },
+  };
 }
 
 /** GET /api/shop/stats?from=&to= — the merchant's own orders and sales per day. */
@@ -548,8 +660,18 @@ http('counterUpi', ['POST'], 'shop/counter/{id}/upi', counterUpiHandler);
 http('counterUpiSim', ['POST'], 'shop/counter/{id}/upi-simulated', counterUpiSimHandler);
 http('counterCard', ['POST'], 'shop/counter/{id}/card', counterCardHandler);
 http('counterCash', ['POST'], 'shop/counter/{id}/cash', counterCashHandler);
+http('counterQr', ['POST'], 'shop/counter/{id}/qr', counterQrHandler);
 http('shopPaymentSettingsGet', ['GET'], 'shop/payment-settings', paymentSettingsGetHandler);
 http('shopPaymentSettingsPut', ['PUT'], 'shop/payment-settings', paymentSettingsPutHandler);
+http('shopPaymentSettingsQr', ['POST'], 'shop/payment-settings/qr', shopPaymentSettingsQrHandler);
+http(
+  'shopPaymentSettingsQrDelete',
+  ['DELETE'],
+  'shop/payment-settings/qr',
+  shopPaymentSettingsQrDeleteHandler,
+);
 http('shopStats', ['GET'], 'shop/stats', shopStatsHandler);
+http('shopAnalytics', ['GET'], 'shop/analytics', shopAnalyticsHandler);
+http('shopAnalyticsExport', ['GET'], 'shop/analytics/export', shopAnalyticsExportHandler);
 http('shopLicenceList', ['GET'], 'shop/licence', shopLicenceListHandler);
 http('shopLicenceSubmit', ['POST'], 'shop/licence/new', shopLicenceSubmitHandler);

@@ -194,9 +194,9 @@ async function feeState(db: Db | Tx, order: OrderRow): Promise<FeeState> {
     .from(feePayments)
     .where(eq(feePayments.orderId, order.id))
     .orderBy(desc(feePayments.createdAt));
-  const captured = pays.find((p) => p.status === 'captured');
+  const capturedPays = pays.filter((p) => p.status === 'captured');
   const base = { amountPaise: order.feePaise, checkout: null };
-  if (!captured) {
+  if (capturedPays.length === 0) {
     const open = pays.find((p) => p.status === 'created');
     const fresh =
       order.status === 'fee_pending' &&
@@ -210,16 +210,19 @@ async function feeState(db: Db | Tx, order: OrderRow): Promise<FeeState> {
         : null,
     };
   }
-  const [refund] = await db
+  const capturedIds = capturedPays.map((p) => p.id);
+  const refunds = await db
     .select()
     .from(feeRefunds)
-    .where(eq(feeRefunds.feePaymentId, captured.id))
-    .orderBy(desc(feeRefunds.createdAt))
-    .limit(1);
+    .where(inArray(feeRefunds.feePaymentId, capturedIds))
+    .orderBy(desc(feeRefunds.createdAt));
+
+  const refund = refunds[0];
   if (refund?.status === 'processed') return { ...base, status: 'refunded' };
   if (refund?.status === 'pending') return { ...base, status: 'refund_pending' };
   if (refund?.status === 'failed') return { ...base, status: 'refund_failed' };
-  return { ...base, status: order.confirmedAt ? 'kept' : 'paid' };
+  const isKept = !!(order.packedAt || order.status === 'packed' || order.status === 'completed');
+  return { ...base, status: isKept ? 'kept' : 'paid' };
 }
 
 export async function billFor(db: Db | Tx, order: OrderRow, shop: ShopRow): Promise<Bill | null> {
@@ -339,6 +342,7 @@ export async function staffOrderView(db: Db | Tx, order: OrderRow): Promise<Staf
             pay.method === 'cash' && pay.receivedPaise != null
               ? pay.receivedPaise - pay.amountPaise
               : null,
+          verificationSource: pay.verificationSource ?? null,
         }
       : null,
     bill: await billFor(db, order, shop!),
@@ -564,7 +568,12 @@ export async function cancelByCustomer(db: Db, userId: string, orderId: string, 
     );
   });
   if (feeOutcome(cancelled) === 'refund') {
-    await refundFee(db, cancelled.id, userId, 'Cancelled before the merchant confirmed');
+    await refundFee(db, cancelled.id, userId, 'Cancelled before packing was completed');
+  } else {
+    await orderEvent(db, cancelled.id, userId, 'fee_retained', {
+      reason: 'Order was successfully packed before cancellation',
+      packedAt: cancelled.packedAt ? cancelled.packedAt.toISOString() : null,
+    });
   }
   return customerOrderView(db, cancelled);
 }
@@ -817,54 +826,76 @@ export async function refundFee(
   provider: PaymentProvider = activeProvider(),
 ) {
   const prepared = await db.transaction(async (tx) => {
-    const [pay] = await tx
+    const capturedPays = await tx
       .select()
       .from(feePayments)
       .where(and(eq(feePayments.orderId, orderId), eq(feePayments.status, 'captured')))
       .orderBy(desc(feePayments.capturedAt))
-      .limit(1)
       .for('update');
-    if (!pay?.providerPaymentId) return null;
-    const existing = await tx.select().from(feeRefunds).where(eq(feeRefunds.feePaymentId, pay.id));
+    if (capturedPays.length === 0) return null;
+
+    for (const pay of capturedPays) {
+      if (!pay.providerPaymentId) continue;
+      const existing = await tx.select().from(feeRefunds).where(eq(feeRefunds.feePaymentId, pay.id));
+      const live = existing.find((r) => r.status === 'pending' || r.status === 'processed');
+      if (live) continue;
+      const [refund] = await tx
+        .insert(feeRefunds)
+        .values({
+          feePaymentId: pay.id,
+          amountPaise: pay.amountPaise,
+          idempotencyKey: `fee-refund:${pay.id}:${existing.length + 1}`,
+          reason,
+          requestedBy: actorId,
+        })
+        .returning();
+      await orderEvent(tx, orderId, actorId, 'fee_refund_requested', { reason });
+      return { refund: refund!, pay, created: true };
+    }
+    const firstPay = capturedPays[0]!;
+    const existing = await tx.select().from(feeRefunds).where(eq(feeRefunds.feePaymentId, firstPay.id));
     const live = existing.find((r) => r.status === 'pending' || r.status === 'processed');
-    if (live) return { refund: live, pay, created: false };
-    const [refund] = await tx
-      .insert(feeRefunds)
-      .values({
-        feePaymentId: pay.id,
-        amountPaise: pay.amountPaise,
-        idempotencyKey: `fee-refund:${pay.id}:${existing.length + 1}`,
-        reason,
-        requestedBy: actorId,
-      })
-      .returning();
-    await orderEvent(tx, orderId, actorId, 'fee_refund_requested', { reason });
-    return { refund: refund!, pay, created: true };
+    return { refund: live ?? null, pay: firstPay, created: false };
   });
-  if (!prepared || !prepared.created) return prepared?.refund ?? null;
+  if (!prepared || !prepared.created || !prepared.refund) return prepared?.refund ?? null;
   if (prepared.pay.provider !== provider.name) provider = providerByName(prepared.pay.provider);
 
-  const { refundId } = await provider.refund({
-    paymentId: prepared.pay.providerPaymentId!,
-    amountPaise: prepared.refund.amountPaise,
-    idempotencyKey: prepared.refund.idempotencyKey,
-  });
-  await db
-    .update(feeRefunds)
-    .set({ providerRefundId: refundId })
-    .where(eq(feeRefunds.id, prepared.refund.id));
-  // The mock provider settles at once through the same signed-webhook path.
-  if (provider.name === mockProvider.name) {
-    const signed = signMockEvent({
-      id: mockId('mock_ev'),
-      type: 'refund.processed',
-      refundId,
+  try {
+    const { refundId } = await provider.refund({
       paymentId: prepared.pay.providerPaymentId!,
       amountPaise: prepared.refund.amountPaise,
+      idempotencyKey: prepared.refund.idempotencyKey,
     });
-    await processFeeWebhook(db, provider.name, signed.rawBody, signed.headers);
+    await db
+      .update(feeRefunds)
+      .set({ providerRefundId: refundId })
+      .where(eq(feeRefunds.id, prepared.refund.id));
+    // The mock provider settles at once through the same signed-webhook path.
+    if (provider.name === mockProvider.name) {
+      const signed = signMockEvent({
+        id: mockId('mock_ev'),
+        type: 'refund.processed',
+        refundId,
+        paymentId: prepared.pay.providerPaymentId!,
+        amountPaise: prepared.refund.amountPaise,
+      });
+      await processFeeWebhook(db, provider.name, signed.rawBody, signed.headers);
+    }
+    const [settled] = await db
+      .select()
+      .from(feeRefunds)
+      .where(eq(feeRefunds.id, prepared.refund.id));
+    return settled ?? prepared.refund;
+  } catch (err) {
+    await db
+      .update(feeRefunds)
+      .set({ status: 'failed' })
+      .where(eq(feeRefunds.id, prepared.refund.id));
+    await orderEvent(db, orderId, actorId, 'fee_refund_failed', {
+      reason: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
   }
-  return prepared.refund;
 }
 
 // ---- Merchant: confirm / reject ----

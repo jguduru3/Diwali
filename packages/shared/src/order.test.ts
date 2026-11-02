@@ -27,22 +27,28 @@ describe('platform fee rules', () => {
     );
   });
 
-  it('refunds when never confirmed, rejected, expired or cancelled before confirmation', () => {
-    expect(feeOutcome({ status: 'expired', confirmedAt: null })).toBe('refund');
-    expect(feeOutcome({ status: 'rejected', confirmedAt: null })).toBe('refund');
-    expect(feeOutcome({ status: 'cancelled', confirmedAt: null })).toBe('refund');
+  it('refunds when rejected, expired or cancelled before packing is completed', () => {
+    expect(feeOutcome({ status: 'expired', packedAt: null })).toBe('refund');
+    expect(feeOutcome({ status: 'rejected', packedAt: null })).toBe('refund');
+    expect(feeOutcome({ status: 'cancelled', packedAt: null })).toBe('refund');
+    // Owner confirmed, but packer has not finished packing: cancelling MUST refund
+    expect(feeOutcome({ status: 'cancelled', confirmedAt: new Date(), packedAt: null })).toBe('refund');
   });
 
-  it('keeps the fee once the merchant confirmed', () => {
+  it('keeps the fee once packing is successfully completed', () => {
     const at = new Date();
-    expect(feeOutcome({ status: 'cancelled', confirmedAt: at })).toBe('keep');
-    expect(feeOutcome({ status: 'completed', confirmedAt: at })).toBe('keep');
-    expect(feeOutcome({ status: 'packing', confirmedAt: at })).toBe('keep');
+    // Non-refundable once packed, completed, or cancelled after packing
+    expect(feeOutcome({ status: 'packed', packedAt: at })).toBe('keep');
+    expect(feeOutcome({ status: 'completed', packedAt: at })).toBe('keep');
+    expect(feeOutcome({ status: 'cancelled', packedAt: at })).toBe('keep');
   });
 
-  it('is undecided while waiting for the merchant', () => {
-    expect(feeOutcome({ status: 'placed', confirmedAt: null })).toBe('pending');
-    expect(feeOutcome({ status: 'fee_pending', confirmedAt: null })).toBe('none');
+  it('is pending and refundable while in progress before packing', () => {
+    expect(feeOutcome({ status: 'placed', packedAt: null })).toBe('pending');
+    expect(feeOutcome({ status: 'confirmed', confirmedAt: new Date(), packedAt: null })).toBe('pending');
+    expect(feeOutcome({ status: 'packing', confirmedAt: new Date(), packedAt: null })).toBe('pending');
+    expect(feeOutcome({ status: 'awaiting_customer', confirmedAt: new Date(), packedAt: null })).toBe('pending');
+    expect(feeOutcome({ status: 'fee_pending', packedAt: null })).toBe('none');
   });
 });
 

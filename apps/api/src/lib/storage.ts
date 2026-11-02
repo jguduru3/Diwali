@@ -88,6 +88,9 @@ export function fileStore(container: Container = 'licences'): FileStore {
 export const itemImagePath = (shopId: string, id: string, ext: string) =>
   `items/${shopId}/${id}.${ext}`;
 
+export const qrImagePath = (shopId: string, id: string, ext: string) =>
+  `qrs/${shopId}/${id}.${ext}`;
+
 export const licenceBlobPath = (shopId: string, id: string, ext: string) =>
   join(shopId, `${id}.${ext}`).replace(/\\/g, '/');
 

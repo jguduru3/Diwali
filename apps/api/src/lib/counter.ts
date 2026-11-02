@@ -54,6 +54,10 @@ export async function paymentSettings(db: Db | Tx, shopId: string): Promise<Sett
       upiVpa: null,
       acceptsCard: true,
       acceptsCash: true,
+      qrImagePath: null,
+      qrUploadedBy: null,
+      qrUploadedAt: null,
+      qrActive: true,
       createdAt: new Date(),
       updatedAt: new Date(),
     }
@@ -307,10 +311,11 @@ export async function recordCard(
         method: 'card',
         amountPaise: order.finalTotalPaise!,
         reference: approvalCode,
+        verificationSource: 'terminal_approved',
         takenBy: actorId,
       })
       .returning();
-    return receive(tx, pay!.id, actorId);
+    return receive(tx, pay!.id, actorId, { verificationSource: 'terminal_approved' });
   });
   return staffOrderView(db, done);
 }
@@ -338,10 +343,51 @@ export async function recordCash(
         method: 'cash',
         amountPaise: order.finalTotalPaise!,
         receivedPaise,
+        verificationSource: 'cash_received',
         takenBy: actorId,
       })
       .returning();
-    return receive(tx, pay!.id, actorId);
+    return receive(tx, pay!.id, actorId, { verificationSource: 'cash_received' });
+  });
+  return staffOrderView(db, done);
+}
+
+/**
+ * QR Payment (PhonePe): The customer pays via PhonePe QR, and the cashier records it as confirmed.
+ * Clearly labelled as cashier-confirmed.
+ */
+export async function recordQrPayment(
+  db: Db,
+  shop: ShopRow,
+  actorId: string,
+  orderId: string,
+  reference?: string,
+) {
+  const settings = await paymentSettings(db, shop.id);
+  if (!settings.qrImagePath || !settings.qrActive) {
+    throw new HttpError(
+      409,
+      'qr_not_configured',
+      'Merchant PhonePe QR is not configured for this shop',
+    );
+  }
+  const done = await db.transaction(async (tx) => {
+    const order = await readyForPayment(tx, shop.id, orderId);
+    await cancelPending(tx, order.id);
+    const [pay] = await tx
+      .insert(counterPayments)
+      .values({
+        orderId: order.id,
+        method: 'upi',
+        amountPaise: order.finalTotalPaise!,
+        reference: reference?.trim() || 'CASHIER_CONFIRMED',
+        verificationSource: 'cashier_confirmed',
+        takenBy: actorId,
+      })
+      .returning();
+    return receive(tx, pay!.id, actorId, {
+      verificationSource: 'cashier_confirmed',
+    });
   });
   return staffOrderView(db, done);
 }

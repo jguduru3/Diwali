@@ -26,6 +26,11 @@ export function dayIST(iso: string | Date): string {
   }).format(new Date(iso));
 }
 
+/** "Sat, 7 Nov, 7:30 pm" in Asia/Kolkata. */
+export function dateTimeIST(iso: string | Date): string {
+  return `${dayIST(iso)}, ${timeIST(iso)}`;
+}
+
 /** Label for a YYYY-MM-DD date tab: Today / Tomorrow / "Sat 7". */
 export function dateTab(date: string): { label: string; sub: string } {
   const today = istDate();

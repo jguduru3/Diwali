@@ -15,6 +15,7 @@ import {
   type AnyColumn,
   type SQL,
 } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
 import {
   addDays,
   categoryInputSchema,
@@ -29,6 +30,7 @@ import {
   merchantPaymentSettingsSchema,
   normalizeIndianPhone,
   orderStatusSchema,
+  qrImageUploadSchema,
   reasonSchema,
   shopInputSchema,
   shopPatchSchema,
@@ -47,6 +49,7 @@ import {
   feePayments,
   feeRefunds,
   items,
+  merchantPaymentSettings,
   orders,
   shopLicences,
   shopPriceVersions,
@@ -63,7 +66,7 @@ import { http, json, parseBody, parseQuery } from '../lib/http';
 import { customerOrderView, refundFee } from '../lib/orders';
 import { clusterView } from '../lib/places';
 import { licenceView } from '../lib/reports';
-import { fileStore } from '../lib/storage';
+import { fileStore, qrImagePath, sniffImage } from '../lib/storage';
 import { saveSettings, settingsView } from './shop';
 
 const admin = (db: Db, req: HttpRequest) => requireRole(db, req, ['admin']);
@@ -453,6 +456,61 @@ export async function shopPaymentSettingsHandler(req: HttpRequest): Promise<Http
   return json(await saveSettings(db, shop, user.id, input));
 }
 
+export async function consoleShopPaymentSettingsQrHandler(
+  req: HttpRequest,
+): Promise<HttpResponseInit> {
+  const db = getDb();
+  const user = await admin(db, req);
+  const id = requireUuidParam(req, 'id');
+  const [shop] = await db.select().from(shops).where(eq(shops.id, id));
+  if (!shop) throw new HttpError(404, 'shop_not_found', 'No such shop');
+  if (req.method === 'DELETE') {
+    await db
+      .update(merchantPaymentSettings)
+      .set({ qrActive: false, updatedAt: new Date() })
+      .where(eq(merchantPaymentSettings.shopId, shop.id));
+    return json(await settingsView(db, shop));
+  }
+  const input = await parseBody(req, qrImageUploadSchema);
+  const base64Str = input.base64.replace(/^data:image\/[a-z]+;base64,/, '');
+  const data = Buffer.from(base64Str, 'base64');
+  const type = sniffImage(data);
+  if (!type || data.length > 5 * 1024 * 1024) {
+    throw new HttpError(400, 'bad_image', 'Upload a JPEG, PNG or WebP photo up to 5 MB');
+  }
+  const ext = type.split('/')[1] === 'jpeg' ? 'jpeg' : type.split('/')[1]!;
+  const path = qrImagePath(shop.id, randomUUID(), ext);
+  await fileStore('shop-media').put(path, data, type);
+  const now = new Date();
+  await db
+    .insert(merchantPaymentSettings)
+    .values({
+      shopId: shop.id,
+      qrImagePath: path,
+      qrUploadedBy: user.id,
+      qrUploadedAt: now,
+      qrActive: true,
+    })
+    .onConflictDoUpdate({
+      target: merchantPaymentSettings.shopId,
+      set: {
+        qrImagePath: path,
+        qrUploadedBy: user.id,
+        qrUploadedAt: now,
+        qrActive: true,
+        updatedAt: now,
+      },
+    });
+  await audit(db, {
+    actorUserId: user.id,
+    action: 'shop.payment_settings_qr_upload',
+    entity: 'shop',
+    entityId: shop.id,
+    meta: { path },
+  });
+  return json(await settingsView(db, shop));
+}
+
 // ---- Metrics ----
 
 /**
@@ -574,4 +632,10 @@ http(
   ['GET', 'PUT'],
   'console/shops/{id}/payment-settings',
   shopPaymentSettingsHandler,
+);
+http(
+  'consoleShopPaymentSettingsQr',
+  ['POST', 'DELETE'],
+  'console/shops/{id}/payment-settings/qr',
+  consoleShopPaymentSettingsQrHandler,
 );
