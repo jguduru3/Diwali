@@ -56,12 +56,18 @@ export function Card({
   children,
   className,
   as: Tag = 'div',
+  onClick,
 }: {
   children: ReactNode;
   className?: string;
   as?: 'div' | 'section' | 'article' | 'li';
+  onClick?: (e: React.MouseEvent) => void;
 }) {
-  return <Tag className={cx('card', className)}>{children}</Tag>;
+  return (
+    <Tag className={cx('card', className)} onClick={onClick}>
+      {children}
+    </Tag>
+  );
 }
 
 type Tone = 'gold' | 'emerald' | 'rose' | 'plum' | 'muted' | 'danger' | 'saffron';
@@ -198,11 +204,13 @@ export function Segmented<T extends string>({
   onChange,
   options,
   label,
+  disabled,
 }: {
   value: T;
   onChange: (v: T) => void;
   options: { value: T; label: ReactNode; sub?: ReactNode }[];
   label: string;
+  disabled?: boolean;
 }) {
   return (
     <div role="radiogroup" aria-label={label} className="flex gap-2 overflow-x-auto pb-1">
@@ -214,9 +222,10 @@ export function Segmented<T extends string>({
             type="button"
             role="radio"
             aria-checked={active}
-            onClick={() => onChange(o.value)}
+            disabled={disabled}
+            onClick={() => !disabled && onChange(o.value)}
             className={cx(
-              'flex min-h-12 shrink-0 flex-col items-center justify-center rounded-2xl border px-4 py-2 text-sm font-semibold transition',
+              'flex min-h-12 shrink-0 flex-col items-center justify-center rounded-2xl border px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60',
               active
                 ? 'border-plum bg-plum text-white shadow-[var(--shadow-card)]'
                 : 'border-line bg-white text-ink hover:border-plum/40',
@@ -269,7 +278,17 @@ export function EmptyState({
   );
 }
 
-export function Stat({ label, value, tone }: { label: ReactNode; value: ReactNode; tone?: Tone }) {
+export function Stat({
+  label,
+  value,
+  sub,
+  tone,
+}: {
+  label: ReactNode;
+  value: ReactNode;
+  sub?: ReactNode;
+  tone?: Tone;
+}) {
   return (
     <div className="card px-5 py-4">
       <p className="text-xs font-semibold tracking-wide text-muted uppercase">{label}</p>
@@ -283,6 +302,7 @@ export function Stat({ label, value, tone }: { label: ReactNode; value: ReactNod
       >
         {value}
       </p>
+      {sub && <p className="mt-1 text-xs text-muted">{sub}</p>}
     </div>
   );
 }

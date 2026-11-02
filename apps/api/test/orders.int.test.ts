@@ -2,10 +2,10 @@ import { createHmac } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { eq } from 'drizzle-orm';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { billSchema } from '@pataka/shared';
 import { getDb } from '../src/db/client';
-import { feeRefunds, items, orders } from '../src/db/schema';
+import { feePayments, feeRefunds, items, orderEvents, orders } from '../src/db/schema';
 import {
   cancelHandler,
   decisionHandler,
@@ -32,9 +32,10 @@ import {
   shopRejectHandler,
   shopScanHandler,
   shopStartPackingHandler,
+  shopStickerHandler,
 } from '../src/functions/shop';
-import { expireUnconfirmed } from '../src/lib/orders';
-import { signMockEvent } from '../src/lib/payments/mock';
+import { expireUnconfirmed, refundFee } from '../src/lib/orders';
+import { mockProvider, signMockEvent } from '../src/lib/payments/mock';
 import { HttpRequest } from '@azure/functions';
 import { body, call, errorCode, makeListedShop, makeUser } from './helpers';
 import { cust, packedOrder, paidOrder, payFee, placed, staff } from './orderHelpers';
@@ -215,7 +216,32 @@ describe('₹30 platform fee (SPEC_V3 §4)', () => {
     ).toHaveLength(2);
   });
 
-  it('keeps the fee once the merchant confirmed', async () => {
+  it('refunds the fee when customer cancels after merchant confirmation but before packing', async () => {
+    const shop = await makeListedShop();
+    const { customer, order } = await paidOrder(shop);
+    const confirmed = await call(shopConfirmHandler, {
+      method: 'POST',
+      session: shop.staff.session,
+      params: { id: order.id },
+    });
+    expect(staff(confirmed).status).toBe('confirmed');
+
+    // Merchant confirmation alone leaves the fee refundable
+    const viewBefore = await call(orderHandler, { session: customer.session, params: { id: order.id } });
+    expect(cust(viewBefore).fee.status).toBe('paid');
+
+    const can = await call(cancelHandler, {
+      method: 'POST',
+      session: customer.session,
+      params: { id: order.id },
+      body: { reason: 'Changed my mind' },
+    });
+    expect(cust(can)).toMatchObject({ status: 'cancelled', fee: { status: 'refunded' } });
+    const refunds = await getDb().select().from(feeRefunds);
+    expect(refunds.filter((r) => r.status === 'processed')).toHaveLength(1);
+  });
+
+  it('refunds the fee when customer cancels while packing is in progress (before finishPacking)', async () => {
     const shop = await makeListedShop();
     const { customer, order } = await paidOrder(shop);
     await call(shopConfirmHandler, {
@@ -223,14 +249,350 @@ describe('₹30 platform fee (SPEC_V3 §4)', () => {
       session: shop.staff.session,
       params: { id: order.id },
     });
+    const started = await call(shopStartPackingHandler, {
+      method: 'POST',
+      session: shop.packer.session,
+      params: { id: order.id },
+    });
+    expect(staff(started).status).toBe('packing');
+
     const can = await call(cancelHandler, {
       method: 'POST',
       session: customer.session,
       params: { id: order.id },
-      body: { reason: 'Changed my mind' },
+      body: { reason: 'Taking too long' },
+    });
+    expect(cust(can)).toMatchObject({ status: 'cancelled', fee: { status: 'refunded' } });
+    const refunds = await getDb().select().from(feeRefunds);
+    expect(refunds.filter((r) => r.status === 'processed')).toHaveLength(1);
+  });
+
+  it('keeps the fee once packing is completed, even if cancelled later', async () => {
+    const shop = await makeListedShop();
+    const p = await packedOrder(shop);
+
+    // After packing finishes, the fee is non-refundable (status: kept)
+    const viewPacked = await call(orderHandler, { session: p.customer.session, params: { id: p.order.id } });
+    expect(cust(viewPacked).fee.status).toBe('kept');
+
+    // Customer cancels after packing
+    const can = await call(cancelHandler, {
+      method: 'POST',
+      session: p.customer.session,
+      params: { id: p.order.id },
+      body: { reason: 'Cannot make it to shop' },
     });
     expect(cust(can)).toMatchObject({ status: 'cancelled', fee: { status: 'kept' } });
+
+    // No refund row created
     expect(await getDb().select().from(feeRefunds)).toHaveLength(0);
+
+    // fee_retained event logged
+    const events = await getDb().select().from(orderEvents).where(eq(orderEvents.orderId, p.order.id));
+    expect(events.some((e) => e.type === 'fee_retained')).toBe(true);
+  });
+});
+
+describe('₹30 platform fee edge cases', () => {
+  it('Test 1: duplicate refund triggers only create one refund record', async () => {
+    const shop = await makeListedShop();
+    const { customer, order } = await paidOrder(shop);
+    await call(shopConfirmHandler, {
+      method: 'POST',
+      session: shop.staff.session,
+      params: { id: order.id },
+    });
+    // Customer cancels before packing is finished
+    const can = await call(cancelHandler, {
+      method: 'POST',
+      session: customer.session,
+      params: { id: order.id },
+      body: { reason: 'Cancel 1' },
+    });
+    expect(cust(can)).toMatchObject({ status: 'cancelled', fee: { status: 'refunded' } });
+
+    const pays = await getDb().select().from(feePayments).where(eq(feePayments.orderId, order.id));
+    const refundsFirst = await getDb()
+      .select()
+      .from(feeRefunds)
+      .where(eq(feeRefunds.feePaymentId, pays[0]!.id));
+    expect(refundsFirst).toHaveLength(1);
+    expect(refundsFirst[0]!.status).toBe('processed');
+
+    // Trigger refund operation a second time directly
+    const secondRefund = await refundFee(
+      getDb(),
+      order.id,
+      customer.user.id,
+      'Duplicate cancel trigger',
+    );
+    expect(secondRefund?.id).toBe(refundsFirst[0]!.id);
+
+    // Verify only one refund row exists in total
+    const refundsSecond = await getDb()
+      .select()
+      .from(feeRefunds)
+      .where(eq(feeRefunds.feePaymentId, pays[0]!.id));
+    expect(refundsSecond).toHaveLength(1);
+  });
+
+  it('Test 2: multiple captured payments refund the unrefunded eligible payment without double-refunding', async () => {
+    const shop = await makeListedShop();
+    const { customer, order } = await paidOrder(shop);
+    const db = getDb();
+
+    // Query initial captured payment
+    const [pay1] = await db.select().from(feePayments).where(eq(feePayments.orderId, order.id));
+    expect(pay1).toBeDefined();
+
+    // Simulate a second captured payment record for the same order
+    const [pay2] = await db
+      .insert(feePayments)
+      .values({
+        orderId: order.id,
+        provider: 'mock',
+        checkoutId: 'mock_chk_dup2',
+        checkoutUrl: 'http://test/chk2',
+        amountPaise: 3000,
+        status: 'captured',
+        providerPaymentId: 'mock_pay_dup2',
+        capturedAt: new Date(Date.now() + 2000),
+        idempotencyKey: `fee:${order.id}:2`,
+      })
+      .returning();
+
+    // Refund #1: should refund pay2 (latest captured)
+    const ref1 = await refundFee(db, order.id, customer.user.id, 'Refund pay2');
+    expect(ref1?.feePaymentId).toBe(pay2!.id);
+    expect(ref1?.status).toBe('processed');
+
+    // Refund #2: should skip pay2 (already refunded) and refund pay1
+    const ref2 = await refundFee(db, order.id, customer.user.id, 'Refund pay1');
+    expect(ref2?.feePaymentId).toBe(pay1!.id);
+    expect(ref2?.status).toBe('processed');
+
+    // Refund #3: both pay1 and pay2 are already refunded, should not create a third refund
+    const ref3 = await refundFee(db, order.id, customer.user.id, 'Refund pay3');
+    expect(ref3?.feePaymentId).toBe(pay2!.id); // returns existing live refund
+    const allRefunds = await db.select().from(feeRefunds);
+    const orderRefunds = allRefunds.filter(
+      (r) => r.feePaymentId === pay1!.id || r.feePaymentId === pay2!.id,
+    );
+    expect(orderRefunds).toHaveLength(2);
+  });
+
+  it('Test 3: provider failure marks refund as failed and does not show premature success to customer', async () => {
+    const shop = await makeListedShop();
+    const { customer, order } = await paidOrder(shop);
+    await call(shopConfirmHandler, {
+      method: 'POST',
+      session: shop.staff.session,
+      params: { id: order.id },
+    });
+
+    const failingProvider = {
+      ...mockProvider,
+      refund: vi.fn().mockRejectedValue(new Error('Payment gateway timeout')),
+    };
+
+    await expect(
+      refundFee(getDb(), order.id, customer.user.id, 'Customer cancel', failingProvider),
+    ).rejects.toThrow('Payment gateway timeout');
+
+    // Verify refund record exists and is marked 'failed'
+    const [pay] = await getDb().select().from(feePayments).where(eq(feePayments.orderId, order.id));
+    const [failedRefund] = await getDb()
+      .select()
+      .from(feeRefunds)
+      .where(eq(feeRefunds.feePaymentId, pay!.id));
+    expect(failedRefund).toBeDefined();
+    expect(failedRefund!.status).toBe('failed');
+
+    // Verify order event recorded
+    const events = await getDb().select().from(orderEvents).where(eq(orderEvents.orderId, order.id));
+    expect(events.some((e) => e.type === 'fee_refund_failed')).toBe(true);
+
+    // Verify customer view does NOT show refunded
+    const view = await call(orderHandler, { session: customer.session, params: { id: order.id } });
+    expect(cust(view).fee.status).toBe('refund_failed');
+    expect(cust(view).fee.status).not.toBe('refunded');
+  });
+
+  it('Test 4: refund retry succeeds after failure and prevents duplicate attempts', async () => {
+    const shop = await makeListedShop();
+    const { customer, order } = await paidOrder(shop);
+    await call(shopConfirmHandler, {
+      method: 'POST',
+      session: shop.staff.session,
+      params: { id: order.id },
+    });
+
+    // Step 1: Simulate initial failure
+    const failingProvider = {
+      ...mockProvider,
+      refund: vi.fn().mockRejectedValue(new Error('Network drop')),
+    };
+    await expect(
+      refundFee(getDb(), order.id, customer.user.id, 'Attempt 1', failingProvider),
+    ).rejects.toThrow('Network drop');
+
+    const [pay] = await getDb().select().from(feePayments).where(eq(feePayments.orderId, order.id));
+    const refundsAfterFail = await getDb()
+      .select()
+      .from(feeRefunds)
+      .where(eq(feeRefunds.feePaymentId, pay!.id));
+    expect(refundsAfterFail).toHaveLength(1);
+    expect(refundsAfterFail[0]!.status).toBe('failed');
+
+    // Step 2: Retry with normal working provider
+    const retryRefund = await refundFee(
+      getDb(),
+      order.id,
+      customer.user.id,
+      'Retry attempt 2',
+    );
+    expect(retryRefund?.status).toBe('processed');
+
+    const refundsAfterRetry = await getDb()
+      .select()
+      .from(feeRefunds)
+      .where(eq(feeRefunds.feePaymentId, pay!.id));
+    expect(refundsAfterRetry).toHaveLength(2);
+    expect(refundsAfterRetry.map((r) => r.status).sort()).toEqual(['failed', 'processed']);
+
+    // Customer view now shows refunded
+    const view = await call(orderHandler, { session: customer.session, params: { id: order.id } });
+    expect(cust(view).fee.status).toBe('refunded');
+
+    // Step 3: Repeated retry does not create a 3rd record
+    await refundFee(getDb(), order.id, customer.user.id, 'Retry attempt 3');
+    const refundsAfterThird = await getDb()
+      .select()
+      .from(feeRefunds)
+      .where(eq(feeRefunds.feePaymentId, pay!.id));
+    expect(refundsAfterThird).toHaveLength(2);
+  });
+
+  it('Test 5: completed order invariant - an order cannot become completed without successful packing', async () => {
+    const shop = await makeListedShop();
+    const { order } = await paidOrder(shop);
+    // 1. Trying to collect payment on counter before packing is rejected
+    const early = await call(counterCashHandler, {
+      method: 'POST',
+      session: shop.cashier.session,
+      params: { id: order.id },
+      body: { receivedPaise: 50000 },
+    });
+    expect(errorCode(early)).toBe('not_ready');
+
+    // 2. Confirm order
+    await call(shopConfirmHandler, {
+      method: 'POST',
+      session: shop.staff.session,
+      params: { id: order.id },
+    });
+
+    // 3. Trying to collect payment on counter after confirm but before packing is rejected
+    const afterConfirm = await call(counterCashHandler, {
+      method: 'POST',
+      session: shop.cashier.session,
+      params: { id: order.id },
+      body: { receivedPaise: 50000 },
+    });
+    expect(errorCode(afterConfirm)).toBe('not_ready');
+
+    // 4. Inspect DB: order has not been completed
+    const [dbOrder] = await getDb().select().from(orders).where(eq(orders.id, order.id));
+    expect(dbOrder!.status).not.toBe('completed');
+    expect(dbOrder!.packedAt).toBeNull();
+  });
+
+  it('Test 6: only successful finishPacking makes fee non-refundable; started packing or partial scans remain refundable', async () => {
+    const shop = await makeListedShop();
+    const p = await paidOrder(shop, [
+      [0, 2],
+      [1, 1],
+    ]);
+    const id = { params: { id: p.order.id } };
+
+    // 1. Confirm order
+    await call(shopConfirmHandler, { method: 'POST', session: shop.staff.session, ...id });
+
+    // 2. Start packing - fee is still paid (refundable)
+    await call(shopStartPackingHandler, { method: 'POST', session: shop.packer.session, ...id });
+    const viewStarted = cust(await call(orderHandler, { session: p.customer.session, ...id }));
+    expect(viewStarted.status).toBe('packing');
+    expect(viewStarted.fee.status).toBe('paid');
+
+    // 3. Partial scan - scan only 1 of 2 units of item 0
+    await call(shopScanHandler, {
+      method: 'POST',
+      session: shop.packer.session,
+      ...id,
+      body: { barcode: shop.items[0]!.barcode! },
+    });
+    const viewPartial = cust(await call(orderHandler, { session: p.customer.session, ...id }));
+    expect(viewPartial.fee.status).toBe('paid');
+
+    // 4. Attempting sticker reprint or finish while incomplete fails
+    const prematureFin = await call(shopFinishHandler, {
+      method: 'POST',
+      session: shop.packer.session,
+      ...id,
+    });
+    expect(errorCode(prematureFin)).toBe('not_ready');
+    const prematureSticker = await call(shopStickerHandler, {
+      method: 'POST',
+      session: shop.packer.session,
+      ...id,
+    });
+    expect(errorCode(prematureSticker)).toBe('not_packed');
+
+    // 5. Cancelling while partially packed still refunds the fee
+    const can = cust(
+      await call(cancelHandler, {
+        method: 'POST',
+        session: p.customer.session,
+        ...id,
+        body: { reason: 'Partial cancel' },
+      }),
+    );
+    expect(can.status).toBe('cancelled');
+    expect(can.fee.status).toBe('refunded');
+
+    // 6. Now with a fresh order, complete packing fully
+    const p2 = await paidOrder(shop, [[0, 1]]);
+    const id2 = { params: { id: p2.order.id } };
+    await call(shopConfirmHandler, { method: 'POST', session: shop.staff.session, ...id2 });
+    await call(shopStartPackingHandler, { method: 'POST', session: shop.packer.session, ...id2 });
+    await call(shopScanHandler, {
+      method: 'POST',
+      session: shop.packer.session,
+      ...id2,
+      body: { barcode: shop.items[0]!.barcode! },
+    });
+    const fin = await call(shopFinishHandler, {
+      method: 'POST',
+      session: shop.packer.session,
+      ...id2,
+    });
+    expect(fin.status).toBe(200);
+
+    const viewPacked = cust(await call(orderHandler, { session: p2.customer.session, ...id2 }));
+    expect(viewPacked.status).toBe('packed');
+    expect(viewPacked.fee.status).toBe('kept');
+
+    // Cancelling after successful finishPacking keeps fee
+    const canPacked = cust(
+      await call(cancelHandler, {
+        method: 'POST',
+        session: p2.customer.session,
+        ...id2,
+        body: { reason: 'Late cancel' },
+      }),
+    );
+    expect(canPacked.status).toBe('cancelled');
+    expect(canPacked.fee.status).toBe('kept');
   });
 });
 

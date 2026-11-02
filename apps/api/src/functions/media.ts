@@ -5,7 +5,7 @@ import { HttpError } from '../lib/errors';
 import { http } from '../lib/http';
 import { fileStore } from '../lib/storage';
 
-const SAFE_PATH = /^items\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.(jpeg|png|webp)$/;
+const SAFE_PATH = /^(items|qrs)\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.(jpeg|png|webp)$/;
 
 /** GET /api/media/{*path} — paths are unguessable and never reused, so cache for a year. */
 export async function mediaHandler(req: HttpRequest): Promise<HttpResponseInit> {

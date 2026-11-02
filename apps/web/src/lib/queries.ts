@@ -23,6 +23,7 @@ import {
   mockCheckoutSchema,
   orderQrResponseSchema,
   packStickerSchema,
+  shopAnalyticsSchema,
   shopContextSchema,
   shopDetailSchema,
   shopSummarySchema,
@@ -424,6 +425,7 @@ export const useCounterUpi = () => useCounterCall<undefined>((id) => `${id}/upi`
 export const useCounterUpiSim = () => useCounterCall<undefined>((id) => `${id}/upi-simulated`);
 export const useCounterCard = () => useCounterCall<{ approvalCode: string }>((id) => `${id}/card`);
 export const useCounterCash = () => useCounterCall<{ receivedPaise: number }>((id) => `${id}/cash`);
+export const useCounterQr = () => useCounterCall<{ reference?: string }>((id) => `${id}/qr`);
 
 /** Polls a pending UPI payment; the server asks the merchant's YouPI-PG. */
 export function useCounterPoll(id: string | null, enabled: boolean) {
@@ -454,9 +456,62 @@ export function useSavePaymentSettings(shopId?: string) {
     ? `/console/shops/${shopId}/payment-settings`
     : `/shop/payment-settings${s.q()}`;
   return useMutation({
-    mutationFn: (body: MerchantPaymentSettingsInput) =>
+    mutationFn: (body: MerchantPaymentSettingsInput & { qrActive?: boolean }) =>
       api(path, { method: 'PUT', body, schema: merchantPaymentSettingsViewSchema }),
     onSuccess: (v) => qc.setQueryData(['paymentSettings', shopId ?? s.code], v),
+  });
+}
+
+export function useUploadPaymentQr(shopId?: string) {
+  const qc = useQueryClient();
+  const s = useShopScope();
+  const path = shopId
+    ? `/console/shops/${shopId}/payment-settings/qr`
+    : `/shop/payment-settings/qr${s.q()}`;
+  return useMutation({
+    mutationFn: (body: {
+      base64: string;
+      contentType?: 'image/jpeg' | 'image/png' | 'image/webp';
+    }) => api(path, { method: 'POST', body, schema: merchantPaymentSettingsViewSchema }),
+    onSuccess: (v) => qc.setQueryData(['paymentSettings', shopId ?? s.code], v),
+  });
+}
+
+export function useDeletePaymentQr(shopId?: string) {
+  const qc = useQueryClient();
+  const s = useShopScope();
+  const path = shopId
+    ? `/console/shops/${shopId}/payment-settings/qr`
+    : `/shop/payment-settings/qr${s.q()}`;
+  return useMutation({
+    mutationFn: () => api(path, { method: 'DELETE', schema: merchantPaymentSettingsViewSchema }),
+    onSuccess: (v) => qc.setQueryData(['paymentSettings', shopId ?? s.code], v),
+  });
+}
+
+export function useShopAnalytics(options: {
+  from: string;
+  to: string;
+  cashierId?: string;
+  method?: string;
+}) {
+  const s = useShopScope();
+  const p = new URLSearchParams({ from: options.from, to: options.to });
+  if (options.cashierId) p.set('cashierId', options.cashierId);
+  if (options.method) p.set('method', options.method);
+  const path = `/shop/analytics?${p.toString()}${s.q('&')}`;
+
+  return useQuery({
+    queryKey: [
+      'shopAnalytics',
+      s.code,
+      options.from,
+      options.to,
+      options.cashierId,
+      options.method,
+    ],
+    queryFn: () => api(path, { schema: shopAnalyticsSchema }),
+    refetchInterval: 15_000,
   });
 }
 

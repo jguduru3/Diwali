@@ -457,6 +457,7 @@ export const counterPayments = pgTable(
     takenBy: uuid('taken_by')
       .notNull()
       .references(() => users.id),
+    verificationSource: text('verification_source').default('manual'),
     receivedAt: tz('received_at'),
     ...stamps,
   },
@@ -497,6 +498,10 @@ export const merchantPaymentSettings = pgTable('merchant_payment_settings', {
   upiVpa: text('upi_vpa'),
   acceptsCard: boolean('accepts_card').notNull().default(true),
   acceptsCash: boolean('accepts_cash').notNull().default(true),
+  qrImagePath: text('qr_image_path'),
+  qrUploadedBy: uuid('qr_uploaded_by').references(() => users.id),
+  qrUploadedAt: tz('qr_uploaded_at'),
+  qrActive: boolean('qr_active').notNull().default(true),
   ...stamps,
 });
 

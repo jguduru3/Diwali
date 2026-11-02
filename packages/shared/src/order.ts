@@ -4,7 +4,7 @@
  * quantities only (G11). The platform collects only its flat fee (G3).
  */
 import { z } from 'zod';
-import { shopCodeSchema } from './domain';
+import { dateSchema, footfallRowSchema, shopCodeSchema } from './domain';
 import { MAX_LINE_QTY, VISIT_CODE_ALPHABET } from './qr';
 
 // ---- Platform fee (SPEC_V3 §4) ----
@@ -52,11 +52,24 @@ export type CounterPaymentStatus = (typeof COUNTER_PAYMENT_STATUSES)[number];
 /** What happens to the ₹30 for an order in this state. */
 export function feeOutcome(order: {
   status: OrderStatus;
-  confirmedAt: Date | null;
+  packedAt?: Date | string | null;
+  confirmedAt?: Date | string | null;
 }): 'none' | 'pending' | 'keep' | 'refund' {
   if (order.status === 'fee_pending') return 'none';
-  if (order.confirmedAt) return 'keep';
-  if (order.status === 'placed') return 'pending';
+  // Platform fee becomes non-refundable ONLY after packing is successfully completed.
+  if (order.packedAt || order.status === 'packed' || order.status === 'completed') {
+    return 'keep';
+  }
+  // While the order is in progress before packing completion, fee remains refundable.
+  if (
+    order.status === 'placed' ||
+    order.status === 'confirmed' ||
+    order.status === 'packing' ||
+    order.status === 'awaiting_customer'
+  ) {
+    return 'pending';
+  }
+  // Terminal failure/cancellation before successful packing triggers a full refund.
   return 'refund';
 }
 
@@ -197,6 +210,22 @@ export const cashPaymentSchema = z
   .object({ receivedPaise: z.number().int().positive().max(100_000_000) })
   .strict();
 
+export const qrPaymentSchema = z
+  .object({ reference: z.string().trim().max(100).optional() })
+  .strict();
+
+export const QR_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+export const qrImageUploadSchema = z
+  .object({
+    contentType: z.enum(['image/jpeg', 'image/png', 'image/webp']).optional().default('image/jpeg'),
+    base64: z
+      .string()
+      .min(50)
+      .max(Math.ceil((QR_IMAGE_MAX_BYTES * 4) / 3) + 1024),
+  })
+  .strict();
+export type QrImageUpload = z.input<typeof qrImageUploadSchema>;
+
 export const merchantPaymentSettingsSchema = z
   .object({
     youpiBaseUrl: z.string().trim().url().max(200).nullable(),
@@ -210,6 +239,7 @@ export const merchantPaymentSettingsSchema = z
       .nullable(),
     acceptsCard: z.boolean(),
     acceptsCash: z.boolean(),
+    qrActive: z.boolean().optional(),
   })
   .strict();
 export type MerchantPaymentSettingsInput = z.input<typeof merchantPaymentSettingsSchema>;
@@ -330,6 +360,7 @@ export const counterPaymentSchema = z.object({
   /** UPI: link the customer opens to pay the merchant (shown as a QR) */
   payUrl: z.string().nullable(),
   changePaise: z.number().nullable(),
+  verificationSource: z.string().nullable().optional(),
 });
 export type CounterPayment = z.infer<typeof counterPaymentSchema>;
 
@@ -392,8 +423,146 @@ export const merchantPaymentSettingsViewSchema = z.object({
   acceptsCard: z.boolean(),
   acceptsCash: z.boolean(),
   webhookUrl: z.string(),
+  qrImageUrl: z.string().nullable().optional(),
+  qrActive: z.boolean().optional(),
+  qrUploadedAt: z.string().nullable().optional(),
 });
 export type MerchantPaymentSettings = z.infer<typeof merchantPaymentSettingsViewSchema>;
+export type MerchantPaymentSettingsView = MerchantPaymentSettings;
+
+// ---- Merchant Sales & Analytics ----
+
+export const shopAnalyticsQuerySchema = z.object({
+  from: dateSchema.optional(),
+  to: dateSchema.optional(),
+  cashierId: z.string().uuid().optional(),
+  method: counterMethodSchema.optional(),
+  status: z.string().optional(),
+  q: z.string().optional(),
+});
+export type ShopAnalyticsQuery = z.infer<typeof shopAnalyticsQuerySchema>;
+
+export const shopAnalyticsKpisSchema = z.object({
+  totalSalesPaise: z.number(),
+  totalCollectionsPaise: z.number().default(0),
+  completedOrders: z.number(),
+  totalItemsSold: z.number(),
+  cancelledOrders: z.number(),
+  refundAmountPaise: z.number(),
+  netCollectionsPaise: z.number().default(0),
+  averageOrderValuePaise: z.number(),
+});
+export type ShopAnalyticsKpis = z.infer<typeof shopAnalyticsKpisSchema>;
+
+export const paymentModeBreakdownItemSchema = z.object({
+  count: z.number(),
+  totalPaise: z.number(),
+});
+
+export const paymentModeBreakdownSchema = z.object({
+  qr: paymentModeBreakdownItemSchema,
+  cash: paymentModeBreakdownItemSchema,
+  card: paymentModeBreakdownItemSchema,
+  totalCollectionsPaise: z.number(),
+});
+export type PaymentModeBreakdown = z.infer<typeof paymentModeBreakdownSchema>;
+
+export const productSaleItemSchema = z.object({
+  itemId: z.string().uuid(),
+  itemNo: z.number(),
+  nameEn: z.string(),
+  nameTe: z.string().nullable(),
+  categoryName: z.string(),
+  qtySold: z.number(),
+  salesPaise: z.number(),
+  stockQty: z.number().nullable(),
+  isSoldOut: z.boolean(),
+});
+export type ProductSaleItem = z.infer<typeof productSaleItemSchema>;
+
+export const inventoryAnalyticsItemSchema = z.object({
+  itemId: z.string().uuid(),
+  itemNo: z.number(),
+  nameEn: z.string(),
+  nameTe: z.string().nullable(),
+  categoryName: z.string(),
+  pricePaise: z.number(),
+  offerPricePaise: z.number().nullable(),
+  stockQty: z.number().nullable(),
+  qtySold: z.number(),
+  isSoldOut: z.boolean(),
+  isLowStock: z.boolean(),
+});
+export type InventoryAnalyticsItem = z.infer<typeof inventoryAnalyticsItemSchema>;
+
+export const cancellationsAndRefundsSchema = z.object({
+  cancelledCount: z.number(),
+  refundEligibleCount: z.number(),
+  refundPendingCount: z.number(),
+  refundProcessedCount: z.number(),
+  totalRefundedPaise: z.number(),
+  totalRefundPendingPaise: z.number(),
+});
+export type CancellationsAndRefunds = z.infer<typeof cancellationsAndRefundsSchema>;
+
+export const cashierReportItemSchema = z.object({
+  cashierId: z.string().uuid(),
+  cashierName: z.string(),
+  cashierPhone: z.string(),
+  transactionsCount: z.number(),
+  qrPaise: z.number(),
+  cashPaise: z.number(),
+  cardPaise: z.number(),
+  totalPaise: z.number(),
+  lastTransactionAt: z.string().nullable(),
+});
+export type CashierReportItem = z.infer<typeof cashierReportItemSchema>;
+
+export const salesRecordProductItemSchema = z.object({
+  nameEn: z.string(),
+  nameTe: z.string().nullable().optional(),
+  packDesc: z.string().nullable().optional(),
+  qty: z.number(),
+  unitPricePaise: z.number(),
+  totalPaise: z.number(),
+});
+export type SalesRecordProductItem = z.infer<typeof salesRecordProductItemSchema>;
+
+export const salesRecordItemSchema = z.object({
+  id: z.string().uuid(),
+  transactionId: z.string().optional(),
+  orderId: z.string().uuid().optional(),
+  orderCode: z.string(),
+  packNo: z.number().nullable().optional(),
+  billNo: z.string().nullable(),
+  completedAt: z.string(),
+  finalTotalPaise: z.number(),
+  paymentMethod: counterMethodSchema,
+  paymentStatus: z.string().default('paid'),
+  paymentReference: z.string().nullable(),
+  verificationSource: z.string().nullable().optional(),
+  cashierName: z.string(),
+  cashierPhone: z.string().optional(),
+  customerPhone: z.string(),
+  itemsSummary: z.string(),
+  refundAmountPaise: z.number().default(0),
+  refundStatus: z.string().nullable().optional(),
+  items: z.array(salesRecordProductItemSchema).default([]),
+});
+export type SalesRecordItem = z.infer<typeof salesRecordItemSchema>;
+
+export const shopAnalyticsSchema = z.object({
+  period: z.object({ from: z.string(), to: z.string() }),
+  kpis: shopAnalyticsKpisSchema,
+  paymentBreakdown: paymentModeBreakdownSchema,
+  salesTrend: z.array(footfallRowSchema),
+  productSales: z.array(productSaleItemSchema),
+  inventory: z.array(inventoryAnalyticsItemSchema),
+  cancellationsAndRefunds: cancellationsAndRefundsSchema,
+  cashierReports: z.array(cashierReportItemSchema),
+  salesRecords: z.array(salesRecordItemSchema),
+});
+export type ShopAnalytics = z.infer<typeof shopAnalyticsSchema>;
 
 export const mockCheckoutSchema = z.object({
   checkoutId: z.string(),

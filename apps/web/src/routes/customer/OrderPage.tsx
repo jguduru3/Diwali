@@ -366,7 +366,7 @@ export function OrderPage() {
               <Card className="p-5">
                 <p className="font-semibold">{t('order.cancelConfirm')}</p>
                 <p className="mt-1 text-sm text-muted">
-                  {o.confirmedAt ? t('order.cancelKept') : t('order.cancelRefund')}
+                  {o.packedAt ? t('order.cancelKept') : t('order.cancelRefund')}
                 </p>
                 <div className="mt-4 flex gap-3">
                   <Button
