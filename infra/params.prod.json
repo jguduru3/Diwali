@@ -1,0 +1,20 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "env": { "value": "prod" },
+    "location": { "value": "centralindia" },
+    "domain": { "value": "" },
+    "seasonEnd": { "value": "2026-11-20" },
+    "demoMode": { "value": false },
+    "otpDevMode": { "value": false },
+    "alertEmail": { "value": "care@truerenewables.in" },
+    "postgresSkuName": { "value": "Standard_D8ds_v5" },
+    "postgresTier": { "value": "GeneralPurpose" },
+    "postgresHighAvailability": { "value": "ZoneRedundant" },
+    "postgresStorageGB": { "value": 128 },
+    "functionMaxInstances": { "value": 200 },
+    "dbPoolMax": { "value": 10 },
+    "catalogueCacheSeconds": { "value": 15 }
+  }
+}

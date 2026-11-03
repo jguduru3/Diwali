@@ -1,0 +1,259 @@
+@import 'tailwindcss';
+
+@theme {
+  /* Better Analytics design system (v1, Oct 2026): one confident blue, Plus Jakarta Sans,
+     a 4px grid and flat cards. Token names are the app's older ones so every screen picks the
+     system up; the comment on each says which design-system token it is. Telugu and Devanagari
+     fall back to Noto Sans, which shares Jakarta's proportions. */
+  --font-display:
+    'Plus Jakarta Sans', 'Noto Sans Telugu', 'Noto Sans Devanagari', system-ui, sans-serif;
+  --font-sans:
+    'Plus Jakarta Sans', 'Noto Sans Telugu', 'Noto Sans Devanagari', system-ui, -apple-system,
+    'Segoe UI', sans-serif;
+
+  --color-brand: #29a6f2; /* brand: logo, display type 24px+, chart series 1 */
+  --color-brand-050: #e6f4fd; /* tinted backgrounds, info banners, selected rows */
+  --color-brand-100: #c4e5fb; /* hovered selected rows, soft chips */
+  --color-brand-300: #7cc8f7; /* secondary chart series, progress tracks */
+  --color-night: #073a5c; /* brand-900: dark identity blocks (header, hero) */
+  --color-plum: #0a65a1; /* action: primary buttons, links, active tabs and toggles */
+  --color-plum-2: #08578a; /* action-hover */
+  --color-plum-3: #073a5c; /* brand-900 */
+  --color-gold: #29a6f2; /* brand */
+  --color-gold-light: #c4e5fb; /* brand-100; also text on brand-900 */
+  --color-gold-deep: #0a65a1; /* brand-700: coloured headings and labels */
+  --color-saffron: #a35a00; /* warning: offers, anomalies (5.2:1) */
+  --color-saffron-bg: #fdf1df; /* warning-bg */
+  --color-rose: #c42b2b; /* negative */
+  --color-ivory: #f5f8fb; /* surface-200: app chrome and page ground */
+  --color-sand: #e8eef4; /* surface-300: hover rows, input fills, placeholders */
+  --color-line: #d9e1e8; /* border: card outlines, dividers */
+  --color-line-strong: #7a8999; /* border-strong: input and control outlines */
+  --color-ink: #0f1b26; /* ink */
+  --color-muted: #4a5a69; /* ink-muted */
+  --color-subtle: #677685; /* ink-subtle: placeholders, timestamps */
+  --color-emerald: #157a46; /* positive */
+  --color-emerald-soft: #e3f5eb; /* positive-bg */
+  --color-danger: #c42b2b; /* negative */
+  --color-danger-soft: #fce8e8; /* negative-bg */
+
+  /* radius-sm 4, radius-md 8 (buttons, inputs, menus), radius-lg 12 (cards, tiles, dialogs) */
+  --radius-xl: 8px;
+  --radius-2xl: 8px;
+  --radius-3xl: 12px;
+
+  --shadow-card: 0 1px 2px rgb(15 27 38 / 0.06); /* shadow-sm: resting cards, with border */
+  --shadow-lift: 0 12px 32px -12px rgb(15 27 38 / 0.28); /* shadow-md: popovers, dialogs */
+  --shadow-glow: 0 1px 2px rgb(15 27 38 / 0.06);
+
+  --animate-pop-in: pop-in 140ms ease-out;
+  @keyframes pop-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px) scale(0.97);
+    }
+  }
+}
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply bg-ivory font-sans text-ink antialiased;
+    font-size: 15px;
+    line-height: 24px;
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-display tracking-tight text-ink;
+  }
+  h1 {
+    letter-spacing: -0.02em;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-plum);
+    outline-offset: 2px;
+  }
+  button {
+    cursor: pointer;
+  }
+  /* Numbers that change line up (tabular figures). */
+  .tabular-nums,
+  .font-display {
+    font-variant-numeric: tabular-nums;
+  }
+  /* Keep focused controls clear of the sticky header and filter bar. */
+  main :where(button, a, input, select, textarea, label) {
+    scroll-margin-top: 16rem;
+    scroll-margin-bottom: 7rem;
+  }
+}
+
+@layer components {
+  /* Dark identity block (brand-900), flat: the system uses no gradients. */
+  .night-sky {
+    background-color: var(--color-night);
+  }
+  .gold-text {
+    color: var(--color-brand);
+  }
+  /* Flat card: surface-raised, 1px border, shadow-sm, radius-lg. */
+  .card {
+    @apply rounded-3xl border border-line bg-white;
+    box-shadow: var(--shadow-card);
+  }
+  .hairline {
+    @apply border-line/70;
+  }
+}
+
+/* Grid columns may shrink below their content (scrolling chip rows inside them). */
+.grid > * {
+  min-width: 0;
+}
+
+/* Horizontal chip / tab rows scroll by swipe without a visible scrollbar. */
+.overflow-x-auto {
+  scrollbar-width: none;
+}
+.overflow-x-auto::-webkit-scrollbar {
+  display: none;
+}
+
+/* Rounded dropdown list that matches the field, where the browser supports a stylable select.
+   Other browsers keep their native picker. */
+@supports (appearance: base-select) {
+  .field-select,
+  .field-select::picker(select) {
+    appearance: base-select;
+  }
+  .field-select {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding-right: 1rem;
+  }
+  .field-select::picker-icon {
+    color: var(--color-muted);
+    transition: rotate 150ms ease-out;
+  }
+  .field-select:open::picker-icon {
+    rotate: 180deg;
+  }
+  .field-select::picker(select) {
+    margin-block: 0.375rem;
+    padding: 0.375rem;
+    border: 1px solid var(--color-line);
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: var(--shadow-lift);
+  }
+  .field-select option {
+    gap: 0.5rem;
+    padding: 0.625rem 0.75rem;
+    border-radius: 4px;
+    color: var(--color-ink);
+    font-size: 15px;
+  }
+  .field-select option:hover,
+  .field-select option:focus-visible {
+    background: var(--color-sand);
+    outline: none;
+  }
+  .field-select option:checked {
+    font-weight: 600;
+  }
+  .field-select option::checkmark {
+    color: var(--color-gold-deep);
+  }
+}
+
+/* Leaflet sits under sticky bars */
+.leaflet-container {
+  z-index: 0;
+  font-family: var(--font-sans);
+}
+
+/* Map markers (ShopMap.tsx) */
+.shop-pin svg {
+  overflow: visible;
+  filter: drop-shadow(0 4px 4px rgb(20 12 36 / 0.3));
+  transform-origin: 50% 94%;
+  transition: transform 150ms ease-out;
+}
+.shop-pin-shadow {
+  fill: rgb(20 12 36 / 0.25);
+}
+.shop-pin:hover svg,
+.shop-pin:focus-visible svg {
+  transform: translateY(-4px) scale(1.12);
+}
+.shop-pin-closed svg {
+  opacity: 0.9;
+}
+.you-pin-dot,
+.you-pin-halo {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+}
+.you-pin-dot {
+  background: var(--color-plum);
+  border: 3px solid #fff;
+  box-shadow: 0 2px 6px rgb(20 12 36 / 0.4);
+}
+.you-pin-halo {
+  background: rgb(10 101 161 / 0.35);
+  animation: you-pulse 2s ease-out infinite;
+}
+@keyframes you-pulse {
+  from {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  to {
+    transform: scale(3.2);
+    opacity: 0;
+  }
+}
+
+/* 58 mm thermal bill (SPEC §7). Only .print-area is printed. */
+@media print {
+  @page {
+    size: 58mm auto;
+    margin: 2mm;
+  }
+  body {
+    background: #fff !important;
+  }
+  body * {
+    visibility: hidden;
+  }
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+  .print-area {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 54mm;
+    font:
+      9pt/1.3 'Plus Jakarta Sans',
+      monospace;
+    color: #000;
+  }
+  .no-print {
+    display: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
