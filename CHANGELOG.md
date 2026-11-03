@@ -2,6 +2,11 @@
 
 ## Growth follow-ups (2026-11-03)
 
+- **Growth demo data:** `pnpm db:seed` now builds an influencer, an agent recruited by them with
+  three shops (consent pending, owner's review, live with the ₹1,000 payout), wallet withdrawals
+  (one sent, one waiting), a pending agent, and customer referrals with credit, all through the
+  real growth code (`apps/api/scripts/seedGrowth.mts`). The demo switcher shows agents and
+  influencers as their own accounts and opens their pages.
 - **Sign-off recorded:** the CA approved the TDS handling and the in-app agreements
   (`docs/GROWTH.md`). The L1 legal opinion is still pending; `ORDERING_ENABLED` is unchanged.
 - **Review reminders:** an hourly job notifies the agent in-app when the owner has not answered

@@ -1,10 +1,10 @@
 // Demo mode (DEMO_MODE=true only): one-tap "view as" sign-in for existing
 // accounts so every screen can be tried without SMS. Disabled → 404.
 import type { HttpRequest, HttpResponseInit } from '@azure/functions';
-import { and, asc, eq, isNull, like } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, like } from 'drizzle-orm';
 import { demoLoginSchema, type DemoAccount, type DemoInfo } from '@pataka/shared';
 import { getDb } from '../db/client';
-import { users } from '../db/schema';
+import { agents, influencers, users } from '../db/schema';
 import { audit } from '../lib/audit';
 import { sessionCookie, signSession } from '../lib/auth';
 import { env } from '../lib/env';
@@ -14,7 +14,15 @@ import { loadMemberships, toMe } from '../lib/members';
 
 /** Seeded demo numbers are +91 90000 000xx. */
 const DEMO_PHONE_PATTERN = '+9190000000%';
-const ROLE_ORDER = ['customer', 'shop_owner', 'shop_staff', 'marshal', 'admin'];
+const ROLE_ORDER = [
+  'customer',
+  'shop_owner',
+  'shop_staff',
+  'shop_packer',
+  'shop_cashier',
+  'marshal',
+  'admin',
+];
 
 /** GET /api/auth/demo */
 export async function demoInfoHandler(): Promise<HttpResponseInit> {
@@ -29,20 +37,47 @@ export async function demoInfoHandler(): Promise<HttpResponseInit> {
     db,
     rows.map((r) => r.id),
   );
+  const ids = rows.map((r) => r.id);
+  const [agentRows, influencerRows] = ids.length
+    ? await Promise.all([
+        db
+          .select({ userId: agents.userId, code: agents.code })
+          .from(agents)
+          .where(inArray(agents.userId, ids)),
+        db
+          .select({ userId: influencers.userId, code: influencers.code })
+          .from(influencers)
+          .where(inArray(influencers.userId, ids)),
+      ])
+    : [[], []];
+  const agentCode = new Map(agentRows.map((a) => [a.userId, a.code]));
+  const influencerCode = new Map(influencerRows.map((i) => [i.userId, i.code]));
+  const PROFILE_ORDER: DemoAccount['profile'][] = [null, 'agent', 'influencer'];
   const accounts: DemoAccount[] = rows
-    .map((u) => ({
-      phone: u.phoneE164,
-      displayName: u.displayName,
-      role: u.role,
-      context:
-        memberships
-          .get(u.id)
-          ?.map((m) => m.name)
-          .join(', ') || null,
-    }))
+    .map((u) => {
+      const profile: DemoAccount['profile'] = influencerCode.has(u.id)
+        ? 'influencer'
+        : agentCode.has(u.id)
+          ? 'agent'
+          : null;
+      return {
+        phone: u.phoneE164,
+        displayName: u.displayName,
+        role: u.role,
+        profile,
+        context:
+          (profile
+            ? `${u.displayName ?? ''} · ${influencerCode.get(u.id) ?? agentCode.get(u.id)}`
+            : memberships
+                .get(u.id)
+                ?.map((m) => m.name)
+                .join(', ')) || null,
+      };
+    })
     .sort(
       (a, b) =>
         ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role) ||
+        PROFILE_ORDER.indexOf(a.profile) - PROFILE_ORDER.indexOf(b.profile) ||
         // the clean demo customer (+91 90000 00099) first; queue visitors after
         (a.role === 'customer' ? b.phone.localeCompare(a.phone) : a.phone.localeCompare(b.phone)),
     );

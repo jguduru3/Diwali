@@ -44,7 +44,9 @@
     "shop_cashier": "Merchant · cashier",
     "marshal": "Gate marshal",
     "admin": "Admin",
-    "agent_setup": "Agent setting up"
+    "agent_setup": "Agent setting up",
+    "agent": "Agent (gig worker)",
+    "influencer": "Influencer"
   },
   "orderStatus": {
     "fee_pending": "Waiting for the ₹30 fee",

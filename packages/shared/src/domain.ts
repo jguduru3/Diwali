@@ -454,6 +454,8 @@ export const demoAccountSchema = z.object({
   displayName: z.string().nullable(),
   role: z.string(),
   context: z.string().nullable(),
+  /** growth program profile on a customer account */
+  profile: z.enum(['agent', 'influencer']).nullish(),
 });
 export type DemoAccount = z.infer<typeof demoAccountSchema>;
 export const demoInfoSchema = z.object({

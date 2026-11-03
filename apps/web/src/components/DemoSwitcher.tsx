@@ -20,12 +20,18 @@ const ROLE_ICON: Record<string, string> = {
   shop_cashier: '💳',
   marshal: '🚦',
   admin: '✦',
+  agent: '🧭',
+  influencer: '📣',
 };
+
+/** Agents and influencers are customer accounts with a growth profile: shown as their own kind. */
+const kindOf = (a: DemoAccount) => a.profile ?? a.role;
+const PROFILE_HOME: Record<string, string> = { agent: '/agent', influencer: '/influencer' };
 
 /** One account per role is enough to explore; the rest stay in the full list. */
 export function pickHighlights(accounts: DemoAccount[]): DemoAccount[] {
   const seen = new Set<string>();
-  return accounts.filter((a) => (seen.has(a.role) ? false : (seen.add(a.role), true)));
+  return accounts.filter((a) => (seen.has(kindOf(a)) ? false : (seen.add(kindOf(a)), true)));
 }
 
 export function DemoAccountList({
@@ -56,17 +62,18 @@ export function DemoAccountList({
               login.mutate(a.phone, {
                 onSuccess: (me) => {
                   onPicked?.(a);
-                  if (!area && navigateAfter) navigate(homePathForRole(me.role));
+                  if (!area && navigateAfter)
+                    navigate((a.profile && PROFILE_HOME[a.profile]) || homePathForRole(me.role));
                 },
               })
             }
             className="group flex w-full items-center gap-3 rounded-2xl border border-line bg-white p-3 text-left transition hover:border-gold hover:shadow-[var(--shadow-card)] disabled:opacity-50"
           >
             <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-sand text-xl group-hover:bg-gold-light/50">
-              {ROLE_ICON[a.role] ?? '•'}
+              {ROLE_ICON[kindOf(a)] ?? '•'}
             </span>
             <span className="min-w-0">
-              <span className="block text-sm font-bold text-ink">{t(`roles.${a.role}`)}</span>
+              <span className="block text-sm font-bold text-ink">{t(`roles.${kindOf(a)}`)}</span>
               <span className="block truncate text-xs text-muted">
                 {a.context ?? a.displayName}
               </span>
@@ -96,6 +103,7 @@ export function DemoSwitcher() {
 
   if (!demo?.enabled) return null;
   const shown = all ? demo.accounts : pickHighlights(demo.accounts);
+  const current = me && demo.accounts.find((a) => a.phone === me.phone);
 
   return (
     <div className="relative" ref={ref}>
@@ -108,7 +116,7 @@ export function DemoSwitcher() {
         <span className="h-2 w-2 animate-pulse rounded-full bg-gold" />
         <span className="hidden sm:inline">{t('demo.pill')}</span>
         <span className="max-w-36 truncate text-white">
-          {me ? t(`roles.${me.role}`) : t('demo.pick')}
+          {current ? t(`roles.${kindOf(current)}`) : me ? t(`roles.${me.role}`) : t('demo.pick')}
         </span>
         <span aria-hidden>▾</span>
       </button>

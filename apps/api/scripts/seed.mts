@@ -31,6 +31,7 @@ import { hashSecret } from '../src/lib/orders';
 import { fileStore } from '../src/lib/storage';
 import { demoLicencePng } from './demoLicenceImage.mjs';
 import { loadLocalSettings } from './localSettings.mjs';
+import { seedGrowth } from './seedGrowth.mjs';
 
 loadLocalSettings();
 const db = getDb();
@@ -652,8 +653,10 @@ await upsertUser(phone(99), 'customer', DEMO_CUSTOMER_NAMES[99]!);
 // +91 90000 00091: placed, waiting for the merchant to confirm.
 // +91 90000 00092: packed — QRs below let you try the Express Pickup counter.
 
-const DEMO_PICKUP_SECRET = 'DEMXQR0000000000000000092A';
-const DEMO_PACK_SECRET = 'DEMXPACK000000000000000092';
+const pickupSecret = (n: number) => `DEMXQR${String(n).padStart(19, '0')}A`;
+const packSecret = (n: number) => `DEMXPACK${String(n).padStart(18, '0')}`;
+const DEMO_PICKUP_SECRET = pickupSecret(92);
+const DEMO_PACK_SECRET = packSecret(92);
 const [slc] = await db.select().from(shops).where(eq(shops.shortCode, 'SLC01'));
 const slcItems = await db
   .select()
@@ -699,10 +702,10 @@ async function demoOrder(
             packingStartedAt: now,
             packedAt: now,
             finalTotalPaise: total,
-            packNo: 1,
+            packNo: n - 91, // 92 → 1, 93 → 2, 95 → 4
             packDay: istDate(now),
-            customerQrHash: hashSecret(DEMO_PICKUP_SECRET),
-            packQrHash: hashSecret(DEMO_PACK_SECRET),
+            customerQrHash: hashSecret(pickupSecret(n)),
+            packQrHash: hashSecret(packSecret(n)),
           }
         : {}),
     })
@@ -746,6 +749,22 @@ await demoOrder(92, 'DEM092', 'packed', [
   { idx: 3, qty: 2 },
 ]);
 
+// ---- Growth program: influencer, agent and their shops, wallets, referrals and credit ----
+const [admin] = await db
+  .select()
+  .from(users)
+  .where(eq(users.phoneE164, phone(1)));
+const growth = await seedGrowth(db, {
+  phone,
+  adminId: admin!.id,
+  upsertCustomer: (n, name) => upsertUser(phone(n), 'customer', name),
+  demoOrder: (n, code, status) =>
+    demoOrder(n, code, status, [
+      { idx: 0, qty: 1 },
+      { idx: 5, qty: 2 },
+    ]),
+});
+
 await closeDb();
 console.log(`Seeded Diwali Express Pickup demo data.
   Shops: SLC01, BAL01, ANA01, DEM01 (live) · SAI01 (licence pending)
@@ -755,6 +774,11 @@ console.log(`Seeded Diwali Express Pickup demo data.
     marshal      ${phone(51)} (Gachibowli)
     customer     ${phone(99)}
     customers    ${phone(91)} (order placed)   ${phone(92)} (order packed)
+    agent        ${phone(61)} (gig worker: 3 shops, wallet)
+    new agent    ${phone(62)} (waiting for admin approval)
+    influencer   ${phone(71)} (link visits, referrals, wallet)
+    referred     ${phone(93)} (rewarded)   ${phone(94)} (pending)   ${phone(95)} (via influencer)
+  ${`Agent ${growth.agentCode} · influencer ${growth.influencerCode}${growth.reviewToken ? ` · owner review link /m/review/${growth.reviewToken}` : ''}`}
   Barcodes at SLC01: 891 + item number, e.g. 8910001
   Packed order DEM-092 — pickup QR: ${encodeOrderQr('customer', DEMO_PICKUP_SECRET)}
                          pack sticker: ${encodeOrderQr('pack', DEMO_PACK_SECRET)}`);

@@ -44,7 +44,9 @@
     "shop_cashier": "मर्चेंट · कैशियर",
     "marshal": "गेट मार्शल",
     "admin": "एडमिन",
-    "agent_setup": "सेटअप कर रहे एजेंट"
+    "agent_setup": "सेटअप कर रहे एजेंट",
+    "agent": "एजेंट (गिग वर्कर)",
+    "influencer": "इन्फ़्लुएंसर"
   },
   "orderStatus": {
     "fee_pending": "₹30 शुल्क का इंतज़ार",
