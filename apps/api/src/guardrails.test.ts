@@ -13,15 +13,12 @@ import {
 } from '@pataka/shared';
 import {
   agentPayouts,
+  agents,
   counterPayments,
-  creditLedger,
-  creditRedemptions,
   feePayments,
   orderLines,
   orders,
-  referrals,
   shops,
-  walletLedger,
 } from './db/schema';
 import { env } from './lib/env';
 
@@ -129,31 +126,32 @@ describe('G5 — growth copy never promises money', () => {
   });
 });
 
-describe('G12/G13 — rewards and money rows are single and idempotent', () => {
+describe('G12/G13 — agent payouts are single-level, once per shop', () => {
   const uniqueOn = (t: Parameters<typeof getTableConfig>[0]) =>
     getTableConfig(t)
       .indexes.filter((i) => i.config.unique)
       .map((i) => i.config.columns.map((c) => (c as { name: string }).name).join(','));
 
-  it('each ledger row is unique per (reason, reference): a credit can be written only once', () => {
-    expect(uniqueOn(walletLedger)).toContain('reason,ref_id');
-    expect(uniqueOn(creditLedger)).toContain('reason,ref_id');
-  });
-
-  it('one payout per shop, one referrer per person, one redemption per order', () => {
+  it('one payout per shop', () => {
     expect(uniqueOn(agentPayouts)).toContain('agent_id,shop_id');
-    expect(columns(referrals)).toContain('referee_user_id');
-    expect(
-      getTableConfig(referrals).columns.find((c) => c.name === 'referee_user_id')?.isUnique,
-    ).toBe(true);
-    expect(
-      getTableConfig(creditRedemptions).columns.find((c) => c.name === 'order_id')?.isUnique,
-    ).toBe(true);
+    expect(getTableConfig(agentPayouts).columns.find((c) => c.name === 'shop_id')?.isUnique).toBe(
+      true,
+    );
   });
 
-  it('no reward row references another reward row (single level)', () => {
-    for (const t of [referrals, agentPayouts, walletLedger, creditLedger]) {
-      for (const c of columns(t)) expect(c).not.toMatch(/parent|upline|level|override/);
+  it('no payout references another payout or a recruiter (single level, no referral network)', () => {
+    for (const t of [agentPayouts, agents]) {
+      for (const c of columns(t))
+        expect(c).not.toMatch(/parent|upline|level|override|recruit|referr/);
     }
+  });
+
+  it('a sent payout always carries its UTR, and TDS never exceeds the payout', () => {
+    const checks = readFileSync(
+      join(repo, 'apps/api/src/db/migrations/0016_direct_agent_payouts.sql'),
+      'utf8',
+    );
+    expect(checks).toMatch(/"status" <> 'sent' OR "utr" IS NOT NULL/);
+    expect(checks).toMatch(/"tds_paise" <= "amount_paise"/);
   });
 });

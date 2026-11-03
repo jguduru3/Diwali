@@ -14,7 +14,12 @@ import { Licences } from './routes/admin/Licences';
 import { Members } from './routes/admin/Members';
 import { AdminOrders } from './routes/admin/Orders';
 import { Overview } from './routes/admin/Overview';
-import { AdminAgents, AdminFeedback, AdminPayouts, AdminSettlements } from './routes/admin/Growth';
+import {
+  AdminAgents,
+  AdminFeedback,
+  AdminPayouts,
+  AdminSubscriptions,
+} from './routes/admin/Growth';
 import { Shops } from './routes/admin/Shops';
 import { Home } from './routes/customer/Home';
 import { KitsPage } from './routes/customer/KitsPage';
@@ -25,16 +30,11 @@ import { PlanPage } from './routes/customer/PlanPage';
 import { ShopPage } from './routes/customer/ShopPage';
 import { Gate } from './routes/gate/Gate';
 import { AgentPage } from './routes/growth/AgentPage';
-import { CreditPage } from './routes/growth/CreditPage';
-import { InfluencerPage } from './routes/growth/InfluencerPage';
 import { OwnerApprovePage, OwnerReviewPage } from './routes/growth/OwnerPages';
-import { ReferralLanding } from './routes/growth/ReferralLanding';
 import { TermsPage } from './routes/growth/TermsPage';
-import { WalletPage } from './routes/growth/WalletPage';
 import { Login } from './routes/Login';
 import { NotFound } from './routes/NotFound';
 import { Counter } from './routes/shop/Counter';
-import { Credits } from './routes/shop/Credits';
 import { Hours } from './routes/shop/Hours';
 import { Licence } from './routes/shop/Licence';
 import { Packing } from './routes/shop/Packing';
@@ -59,14 +59,10 @@ export const routes: RouteObject[] = [
       // The ₹30 fee checkout checks the customer itself; a subscription checkout needs no sign-in.
       { path: '/pay/mock/:checkoutId', element: <MockPayPage /> },
       { path: '/kits/:type', element: <KitsPage /> },
-      { path: '/r/:code', element: <ReferralLanding /> },
       { path: '/terms/:party', element: <TermsPage /> },
       { path: '/m/approve/:token', element: <OwnerApprovePage /> },
       { path: '/m/review/:token', element: <OwnerReviewPage /> },
-      { path: '/credit', element: guard(<CreditPage />) },
       { path: '/agent', element: guard(<AgentPage />) },
-      { path: '/influencer', element: guard(<InfluencerPage />) },
-      { path: '/wallet', element: guard(<WalletPage />) },
       { path: '/about', element: <About /> },
       { path: '/login', element: <Login /> },
       { path: '/account', element: guard(<Account />) },
@@ -82,7 +78,6 @@ export const routes: RouteObject[] = [
           { path: 'payments', element: <Payments /> },
           { path: 'licence', element: <Licence /> },
           { path: 'report', element: <Report /> },
-          { path: 'credits', element: <Credits /> },
           { path: 'poster', element: <Poster /> },
         ],
       },
@@ -102,7 +97,7 @@ export const routes: RouteObject[] = [
           { path: 'blocked', element: <Blocked /> },
           { path: 'agents', element: <AdminAgents /> },
           { path: 'payouts', element: <AdminPayouts /> },
-          { path: 'settlements', element: <AdminSettlements /> },
+          { path: 'subscriptions', element: <AdminSubscriptions /> },
           { path: 'feedback', element: <AdminFeedback /> },
         ],
       },

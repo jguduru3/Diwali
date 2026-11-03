@@ -314,7 +314,8 @@ resource func 'Microsoft.Web/sites@2024-04-01' = {
         { name: 'RAZORPAY_KEY_SECRET', value: '@Microsoft.KeyVault(SecretUri=${vaultUri}secrets/RAZORPAY-KEY-SECRET)' }
         { name: 'RAZORPAY_WEBHOOK_SECRET', value: '@Microsoft.KeyVault(SecretUri=${vaultUri}secrets/RAZORPAY-WEBHOOK-SECRET)' }
         { name: 'MERCHANT_SECRETS_KEY', value: '@Microsoft.KeyVault(SecretUri=${vaultUri}secrets/MERCHANT-SECRETS-KEY)' }
-        { name: 'PUBLIC_ORIGIN', value: empty(domain) ? '' : 'https://${domain}' }
+        // Links and payment return URLs: the custom domain, or the Front Door address until one is set.
+        { name: 'PUBLIC_ORIGIN', value: 'https://${empty(domain) ? endpoint.properties.hostName : domain}' }
         { name: 'DB_POOL_MAX', value: string(dbPoolMax) }
         // A frontend on another site needs cross-site session cookies (Secure; SameSite=None).
         { name: 'COOKIE_SAMESITE', value: empty(webOrigins) ? 'Lax' : 'None' }

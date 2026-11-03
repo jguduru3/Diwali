@@ -69,8 +69,7 @@ function Payment({
     if (poll.data?.status === 'completed') onUpdate(poll.data);
   }, [poll.data, onUpdate]);
 
-  // Platform credit comes off the bill; the shop collects the rest and is paid the credit later.
-  const due = (order.finalTotalPaise ?? 0) - order.creditPaise;
+  const due = order.finalTotalPaise ?? 0;
   const receivedPaise = rupeesToPaise(received);
   const done = { onSuccess: onUpdate };
   const payUrl = live.counterPayment?.status === 'pending' ? live.counterPayment.payUrl : null;
@@ -420,18 +419,10 @@ function OrderAtCounter({ initial, onNext }: { initial: StaffOrder; onNext: () =
               <span>{t('counter.itemCount', { count: totalUnits })}</span>
               <span>{picked.length} items</span>
             </div>
-            {order.creditPaise > 0 && (
-              <div className="mt-2 flex items-baseline justify-between text-sm">
-                <span className="text-muted">{t('counter.creditLine')}</span>
-                <span className="font-semibold text-emerald tabular-nums">
-                  − {formatPaise(order.creditPaise)}
-                </span>
-              </div>
-            )}
             <div className="mt-2 flex items-baseline justify-between pt-2 border-t border-line/60">
               <span className="text-base font-bold text-ink">{t('counter.totalPayable')}</span>
               <span className="font-display text-2xl font-bold text-gold-deep">
-                {formatPaise((order.finalTotalPaise ?? 0) - order.creditPaise)}
+                {formatPaise(order.finalTotalPaise ?? 0)}
               </span>
             </div>
           </div>

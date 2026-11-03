@@ -75,8 +75,6 @@ export const users = pgTable('users', {
   deletedAt: tz('deleted_at'),
   /** chosen app language (en, te, hi); null = not chosen yet */
   lang: text('lang'),
-  /** the person's own referral code (DXR-…), made on first use */
-  referralCode: text('referral_code').unique(),
   ...stamps,
 });
 
@@ -403,8 +401,6 @@ export const orders = pgTable(
     shopId: uuid('shop_id')
       .notNull()
       .references(() => shops.id),
-    /** customer's request to use credit on this bill; the counter applies it (G11) */
-    creditRequestedPaise: integer('credit_requested_paise').notNull().default(0),
     status: orderStatus('status').notNull().default('fee_pending'),
     feePaise: integer('fee_paise').notNull(),
     estimatedTotalPaise: integer('estimated_total_paise').notNull(),
@@ -669,9 +665,9 @@ export const dailyShopStats = pgTable(
   (t) => [primaryKey({ columns: [t.shopId, t.day] })],
 );
 
-// ---- Growth program: agents, influencers, wallets, referrals, credits, subscriptions ----
-// Money rows are append-only and idempotent (G13): unique (reason, ref_id) on every ledger
-// credit, one payout per shop, one referral per referee, one redemption per order.
+// ---- Growth program: agents (gig workers), merchant subscriptions, payouts ----
+// Money rows are append-only and idempotent (G13): one payout per shop, moved only forward by
+// compare-and-set (pending → sent, or failed → pending on retry, or reversed).
 
 export const agents = pgTable(
   'agents',
@@ -687,7 +683,12 @@ export const agents = pgTable(
     status: text('status', { enum: ['pending', 'active', 'suspended'] })
       .notNull()
       .default('pending'),
-    recruitedByInfluencerId: uuid('recruited_by_influencer_id'),
+    /** payouts go here: encrypted, a hash for "one agent per UPI ID", and a hint (G9) */
+    upiEnc: text('upi_enc').notNull(),
+    upiHash: text('upi_hash').notNull().unique(),
+    upiHint: text('upi_hint').notNull(),
+    panEnc: text('pan_enc'),
+    panLast4: text('pan_last4'),
     agreementVersion: text('agreement_version').notNull(),
     agreementAcceptedAt: tz('agreement_accepted_at').notNull(),
     approvedBy: uuid('approved_by').references(() => users.id),
@@ -697,111 +698,6 @@ export const agents = pgTable(
     ...stamps,
   },
   (t) => [check('agents_code_format', sql`${t.code} ~ '^DXA-[0-9A-HJKMNP-TV-Z]{6}$'`)],
-);
-
-export const influencers = pgTable(
-  'influencers',
-  {
-    id: id(),
-    userId: uuid('user_id')
-      .notNull()
-      .unique()
-      .references(() => users.id),
-    code: text('code').notNull().unique(),
-    handle: text('handle').notNull(),
-    platform: text('platform').notNull(),
-    status: text('status', { enum: ['pending', 'active', 'suspended'] })
-      .notNull()
-      .default('pending'),
-    agreementVersion: text('agreement_version').notNull(),
-    agreementAcceptedAt: tz('agreement_accepted_at').notNull(),
-    approvedBy: uuid('approved_by').references(() => users.id),
-    approvedAt: tz('approved_at'),
-    linkVisits: integer('link_visits').notNull().default(0),
-    ...stamps,
-  },
-  (t) => [check('influencers_code_format', sql`${t.code} ~ '^DXI-[0-9A-HJKMNP-TV-Z]{6}$'`)],
-);
-
-/** One money wallet per person (agents and influencers share it); UPI ID and PAN encrypted (G9). */
-export const wallets = pgTable('wallets', {
-  id: id(),
-  userId: uuid('user_id')
-    .notNull()
-    .unique()
-    .references(() => users.id),
-  upiEnc: text('upi_enc').notNull(),
-  /** sha256 of the normalised UPI ID: one wallet per UPI ID */
-  upiHash: text('upi_hash').notNull().unique(),
-  upiHint: text('upi_hint').notNull(),
-  panEnc: text('pan_enc'),
-  panLast4: text('pan_last4'),
-  frozen: boolean('frozen').notNull().default(false),
-  frozenReason: text('frozen_reason'),
-  failedTransfers: integer('failed_transfers').notNull().default(0),
-  ...stamps,
-});
-
-export const WALLET_REASONS = [
-  'onboarding',
-  'referral_reward',
-  'recruit_reward',
-  'withdrawal',
-  'return',
-  'reversal',
-] as const;
-
-export const walletLedger = pgTable(
-  'wallet_ledger',
-  {
-    id: id(),
-    walletId: uuid('wallet_id')
-      .notNull()
-      .references(() => wallets.id),
-    deltaPaise: integer('delta_paise').notNull(),
-    reason: text('reason', { enum: WALLET_REASONS }).notNull(),
-    /** what this row is for: payout id, referral id, withdrawal id… unique per reason */
-    refId: text('ref_id').notNull(),
-    /** Indian financial year of an earning, e.g. 2026-27 */
-    fy: text('fy').notNull(),
-    createdAt: tz('created_at').notNull().defaultNow(),
-  },
-  (t) => [
-    uniqueIndex('wallet_ledger_once').on(t.reason, t.refId),
-    index('wallet_ledger_wallet').on(t.walletId, t.createdAt),
-    check('wallet_ledger_nonzero', sql`${t.deltaPaise} <> 0`),
-  ],
-);
-
-export const withdrawals = pgTable(
-  'withdrawals',
-  {
-    id: id(),
-    walletId: uuid('wallet_id')
-      .notNull()
-      .references(() => wallets.id),
-    amountPaise: integer('amount_paise').notNull(),
-    tdsPaise: integer('tds_paise').notNull().default(0),
-    /** part of the year's earnings above the TDS threshold this withdrawal taxed */
-    tdsBasePaise: integer('tds_base_paise').notNull().default(0),
-    fy: text('fy').notNull(),
-    status: text('status', { enum: ['requested', 'sent', 'failed'] })
-      .notNull()
-      .default('requested'),
-    provider: text('provider').notNull(),
-    providerRef: text('provider_ref'),
-    utr: text('utr'),
-    dayIst: date('day_ist').notNull(),
-    idempotencyKey: text('idempotency_key').notNull().unique(),
-    failureReason: text('failure_reason'),
-    decidedBy: uuid('decided_by').references(() => users.id),
-    sentAt: tz('sent_at'),
-    ...stamps,
-  },
-  (t) => [
-    index('withdrawals_wallet_day').on(t.walletId, t.dayIst),
-    check('withdrawals_amount_positive', sql`${t.amountPaise} > 0`),
-  ],
 );
 
 export const shopEvents = pgTable(
@@ -884,6 +780,7 @@ export const merchantSubscriptions = pgTable(
   ],
 );
 
+/** ₹1,000 per live shop, paid straight to the agent's UPI ID by an admin (UTR recorded). */
 export const agentPayouts = pgTable(
   'agent_payouts',
   {
@@ -896,13 +793,28 @@ export const agentPayouts = pgTable(
       .unique()
       .references(() => shops.id),
     amountPaise: integer('amount_paise').notNull(),
-    status: text('status', { enum: ['credited', 'reversed'] })
+    /** Indian financial year the payout was earned in, e.g. 2026-27 (TDS and the PAN gate) */
+    fy: text('fy').notNull(),
+    tdsPaise: integer('tds_paise').notNull().default(0),
+    /** part of the year's earnings above the TDS threshold this payout taxed */
+    tdsBasePaise: integer('tds_base_paise').notNull().default(0),
+    status: text('status', { enum: ['pending', 'sent', 'failed', 'reversed'] })
       .notNull()
-      .default('credited'),
+      .default('pending'),
+    utr: text('utr'),
+    sentAt: tz('sent_at'),
+    decidedBy: uuid('decided_by').references(() => users.id),
+    failureReason: text('failure_reason'),
+    failedAttempts: integer('failed_attempts').notNull().default(0),
+    reversalReason: text('reversal_reason'),
     earnedAt: tz('earned_at').notNull().defaultNow(),
     reversedAt: tz('reversed_at'),
   },
-  (t) => [uniqueIndex('agent_payouts_once').on(t.agentId, t.shopId)],
+  (t) => [
+    uniqueIndex('agent_payouts_once').on(t.agentId, t.shopId),
+    index('agent_payouts_agent_fy').on(t.agentId, t.fy),
+    index('agent_payouts_status_idx').on(t.status, t.earnedAt),
+  ],
 );
 
 export const agentFeedback = pgTable(
@@ -922,116 +834,6 @@ export const agentFeedback = pgTable(
   (t) => [uniqueIndex('agent_feedback_once').on(t.agentId, t.shopId)],
 );
 
-export const referrals = pgTable(
-  'referrals',
-  {
-    id: id(),
-    referrerUserId: uuid('referrer_user_id')
-      .notNull()
-      .references(() => users.id),
-    /** one referrer per person, forever */
-    refereeUserId: uuid('referee_user_id')
-      .notNull()
-      .unique()
-      .references(() => users.id),
-    source: text('source', { enum: ['customer', 'influencer'] }).notNull(),
-    code: text('code').notNull(),
-    status: text('status', { enum: ['pending', 'rewarded', 'reversed', 'rejected'] })
-      .notNull()
-      .default('pending'),
-    qualifyingOrderId: uuid('qualifying_order_id').references(() => orders.id),
-    rewardedAt: tz('rewarded_at'),
-    ...stamps,
-  },
-  (t) => [
-    index('referrals_referrer').on(t.referrerUserId),
-    check('referrals_not_self', sql`${t.referrerUserId} <> ${t.refereeUserId}`),
-  ],
-);
-
-export const CREDIT_REASONS = ['referral', 'reversal', 'hold', 'release', 'expiry'] as const;
-
-/** Customer credit (spent only as a discount at a listed shop's counter, never cash). */
-export const creditLedger = pgTable(
-  'credit_ledger',
-  {
-    id: id(),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => users.id),
-    deltaPaise: integer('delta_paise').notNull(),
-    reason: text('reason', { enum: CREDIT_REASONS }).notNull(),
-    refId: text('ref_id').notNull(),
-    createdAt: tz('created_at').notNull().defaultNow(),
-  },
-  (t) => [
-    uniqueIndex('credit_ledger_once').on(t.reason, t.refId),
-    index('credit_ledger_user').on(t.userId, t.createdAt),
-    check('credit_ledger_nonzero', sql`${t.deltaPaise} <> 0`),
-  ],
-);
-
-export const creditRedemptions = pgTable(
-  'credit_redemptions',
-  {
-    id: id(),
-    orderId: uuid('order_id')
-      .notNull()
-      .unique()
-      .references(() => orders.id),
-    shopId: uuid('shop_id')
-      .notNull()
-      .references(() => shops.id),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => users.id),
-    amountPaise: integer('amount_paise').notNull(),
-    /** held when the counter takes payment, redeemed with the bill, released if it never closes */
-    status: text('status', { enum: ['held', 'redeemed', 'released'] })
-      .notNull()
-      .default('held'),
-    settlementId: uuid('settlement_id'),
-    ...stamps,
-  },
-  (t) => [
-    index('credit_redemptions_shop').on(t.shopId, t.status),
-    check('credit_redemptions_positive', sql`${t.amountPaise} > 0`),
-  ],
-);
-
-export const merchantSettlements = pgTable(
-  'merchant_settlements',
-  {
-    id: id(),
-    shopId: uuid('shop_id')
-      .notNull()
-      .references(() => shops.id),
-    mode: text('mode', { enum: ['weekly', 'requested'] }).notNull(),
-    periodStart: date('period_start'),
-    periodEnd: date('period_end'),
-    amountPaise: integer('amount_paise').notNull(),
-    status: text('status', { enum: ['pending', 'paid'] })
-      .notNull()
-      .default('pending'),
-    upiHint: text('upi_hint'),
-    utr: text('utr'),
-    paidBy: uuid('paid_by').references(() => users.id),
-    paidAt: tz('paid_at'),
-    /** IST day of an on-request settlement: one per shop per day */
-    requestedDay: date('requested_day'),
-    ...stamps,
-  },
-  (t) => [
-    uniqueIndex('merchant_settlements_one_request_a_day')
-      .on(t.shopId, t.requestedDay)
-      .where(sql`${t.mode} = 'requested'`),
-    uniqueIndex('merchant_settlements_one_week')
-      .on(t.shopId, t.periodStart)
-      .where(sql`${t.mode} = 'weekly'`),
-    check('merchant_settlements_positive', sql`${t.amountPaise} > 0`),
-  ],
-);
-
 export const termsAcceptances = pgTable(
   'terms_acceptances',
   {
@@ -1045,7 +847,7 @@ export const termsAcceptances = pgTable(
   (t) => [primaryKey({ columns: [t.userId, t.party, t.version] })],
 );
 
-/** In-app notices (agents: each onboarding step; owners: review link, settlements). */
+/** In-app notices (agents: each onboarding step and payout; owners: the review link). */
 export const notifications = pgTable(
   'notifications',
   {

@@ -1,21 +1,50 @@
 import { describe, expect, it } from 'vitest';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
-import type { CreditView, ReviewPage, WalletView } from '@pataka/shared';
+import type { AgentMe, ReviewPage } from '@pataka/shared';
 import { account, mockApi } from './test/mockApi';
 import { renderAt } from './test/render';
 
-const wallet: WalletView = {
-  balancePaise: 300000,
-  todayRemainingPaise: 200000,
-  fyEarnedPaise: 300000,
-  fy: '2026-27',
-  panOnFile: false,
-  panRequired: false,
-  panPrompt: false,
-  frozen: false,
+const agentMe: AgentMe = {
+  code: 'DXA-KC55RR',
+  name: 'Ramesh K',
+  status: 'active',
+  merchants: [],
   upiHint: 'ra•••@okhdfc',
-  ledger: [{ id: 'l1', deltaPaise: 100000, reason: 'onboarding', at: '2026-11-03T10:00:00.000Z' }],
-  withdrawals: [],
+  fy: '2026-27',
+  fyEarnedPaise: 300000,
+  paidPaise: 200000,
+  pendingPaise: 100000,
+  panOnFile: false,
+  panPrompt: false,
+  panRequired: false,
+  payouts: [
+    {
+      id: '00000000-0000-4000-8000-000000000001',
+      shopName: 'Sri Ganesh Kirana',
+      amountPaise: 100000,
+      tdsPaise: 0,
+      netPaise: 100000,
+      status: 'pending',
+      utr: null,
+      blocked: null,
+      failureReason: null,
+      earnedAt: '2026-11-03T10:00:00.000Z',
+      sentAt: null,
+    },
+    {
+      id: '00000000-0000-4000-8000-000000000002',
+      shopName: 'Lakshmi Stores',
+      amountPaise: 100000,
+      tdsPaise: 0,
+      netPaise: 100000,
+      status: 'sent',
+      utr: 'UTR612345678901',
+      blocked: null,
+      failureReason: null,
+      earnedAt: '2026-11-02T10:00:00.000Z',
+      sentAt: '2026-11-02T12:00:00.000Z',
+    },
+  ],
 };
 
 const review: ReviewPage = {
@@ -34,14 +63,13 @@ const review: ReviewPage = {
 };
 
 describe('agent portal', () => {
-  it('asks a new agent to register; the button needs the terms accepted', async () => {
+  it('asks a new agent to register with the UPI ID their payouts go to', async () => {
     const calls = mockApi(account('customer'), {
       extra: {
         '/agent/me': { __status: 404, body: { error: { code: 'not_agent', message: '' } } },
-        '/me/profiles': { agent: null, influencer: null, wallet: false },
+        '/me/profiles': { agent: null },
       },
     });
-    // no agent yet: the API answers 404 not_agent
     calls.length = 0;
     renderAt('/agent');
     expect(
@@ -50,7 +78,9 @@ describe('agent portal', () => {
     const register = screen.getByRole('button', { name: 'Register' });
     expect(register).toBeDisabled();
     fireEvent.change(screen.getByLabelText('Your name'), { target: { value: 'Ramesh K' } });
-    fireEvent.change(screen.getByLabelText(/^UPI ID/), { target: { value: 'ramesh@okhdfc' } });
+    fireEvent.change(screen.getByLabelText(/^UPI ID for payouts/), {
+      target: { value: 'ramesh@okhdfc' },
+    });
     fireEvent.click(screen.getByRole('checkbox'));
     expect(register).toBeEnabled();
     fireEvent.click(register);
@@ -63,31 +93,48 @@ describe('agent portal', () => {
       });
     });
   });
-});
 
-describe('money wallet', () => {
-  it('withdraws with an idempotency key, so a retry cannot pay twice', async () => {
-    const calls = mockApi(account('customer'), {
-      extra: { '/wallet': wallet, '/wallet/withdraw': wallet },
+  it('shows the payouts: where they go, what was paid, what is on its way', async () => {
+    mockApi(account('customer'), {
+      extra: { '/agent/me': agentMe, '/me/profiles': { agent: 'active' }, '/notifications': [] },
     });
-    renderAt('/wallet');
-    expect((await screen.findAllByText('₹3,000')).length).toBe(2); // balance and earned
-    expect(screen.getByText(/ra•••@okhdfc/)).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '500' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Withdraw' }));
-    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/wallet/withdraw'))).toBe(true));
-    const sent = calls.find((c) => c.url.endsWith('/wallet/withdraw'))!;
-    expect(JSON.parse(sent.body!)).toEqual({ amountPaise: 50000 });
-    expect(sent.headers?.['Idempotency-Key']).toMatch(/^[0-9a-f-]{36}$/);
+    renderAt('/agent');
+    expect(await screen.findByRole('heading', { name: 'Your payouts' })).toBeInTheDocument();
+    expect(screen.getByText(/Payouts go to ra•••@okhdfc/)).toBeInTheDocument();
+    expect(screen.getByText('₹2,000')).toBeInTheDocument(); // paid
+    expect(screen.getByText('₹3,000')).toBeInTheDocument(); // earned this year
+    expect(screen.getByText(/UTR UTR612345678901/)).toBeInTheDocument();
+    expect(screen.getByText('Being sent', { selector: 'span' })).toBeInTheDocument();
+    expect(screen.queryByText(/Add your PAN/)).not.toBeInTheDocument();
   });
 
-  it('asks for the PAN when it is required', async () => {
-    mockApi(account('customer'), {
-      extra: { '/wallet': { ...wallet, panRequired: true, panPrompt: true } },
+  it('asks for the PAN when payouts are held for it, and sends it', async () => {
+    const calls = mockApi(account('customer'), {
+      extra: {
+        '/agent/me': {
+          ...agentMe,
+          fyEarnedPaise: 2000000,
+          panRequired: true,
+          panPrompt: true,
+          payouts: [{ ...agentMe.payouts[0]!, blocked: 'pan_required' }],
+        },
+        '/agent/pan': agentMe,
+        '/me/profiles': { agent: 'active' },
+        '/notifications': [],
+      },
     });
-    renderAt('/wallet');
-    expect(await screen.findByText(/Add your PAN to keep withdrawing/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Save PAN' })).toBeDisabled();
+    renderAt('/agent');
+    expect(await screen.findByText(/Payouts wait until you add your PAN/)).toBeInTheDocument();
+    expect(screen.getByText('Waiting for your PAN')).toBeInTheDocument();
+    const save = screen.getByRole('button', { name: 'Save PAN' });
+    expect(save).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('PAN'), { target: { value: 'abcde1234f' } });
+    expect(save).toBeEnabled();
+    fireEvent.click(save);
+    await waitFor(() => {
+      const sent = calls.find((c) => c.url.endsWith('/agent/pan'));
+      expect(JSON.parse(sent!.body!)).toEqual({ pan: 'ABCDE1234F' });
+    });
   });
 });
 
@@ -107,26 +154,5 @@ describe('owner review link', () => {
     });
     // never pay an agent in cash
     expect(screen.getAllByText(/Never pay an agent in cash/).length).toBeGreaterThan(0);
-  });
-});
-
-describe('my credit', () => {
-  it('shows the balance and the code to share', async () => {
-    const credit: CreditView = {
-      balancePaise: 2000,
-      expiresOn: '2026-11-20',
-      referralCode: 'DXR-ABC123',
-      invited: 3,
-      rewarded: 2,
-      history: [],
-    };
-    mockApi(account('customer'), { extra: { '/me/credit': credit } });
-    renderAt('/credit');
-    expect(await screen.findByText('DXR-ABC123')).toBeInTheDocument();
-    expect(screen.getByText('₹20')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Send on WhatsApp' })).toHaveAttribute(
-      'href',
-      expect.stringContaining(encodeURIComponent('/r/DXR-ABC123')),
-    );
   });
 });

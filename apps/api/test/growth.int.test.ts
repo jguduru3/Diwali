@@ -1,10 +1,9 @@
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import {
+  AGENT_PAYOUT_PAISE,
   agentMeSchema,
-  billSchema,
-  creditViewSchema,
-  walletViewSchema,
+  type AgentMe,
   type MerchantDraft,
   type ReviewPage,
 } from '@pataka/shared';
@@ -13,26 +12,24 @@ import {
   agentPayouts,
   agents,
   categories,
-  creditLedger,
   items,
   merchantSubscriptions,
   notifications,
   shopMembers,
   shops,
   users,
-  wallets,
 } from '../src/db/schema';
 import { licenceVerifyHandler } from '../src/functions/console';
 import {
-  adminSettlementPaidHandler,
-  adminWithdrawalFailedHandler,
+  adminPayoutFailedHandler,
+  adminPayoutRetryHandler,
+  adminPayoutReverseHandler,
+  adminPayoutSentHandler,
+  adminPayoutsHandler,
   agentMeHandler,
+  agentPanHandler,
   agentRegisterHandler,
-  claimHandler,
-  creditHandler,
-  influencerMeHandler,
-  influencerRegisterHandler,
-  linkVisitHandler,
+  agentUpiHandler,
   kitsHandler,
   kitOffersHandler,
   merchantConsentHandler,
@@ -40,25 +37,16 @@ import {
   merchantNewHandler,
   merchantSetupHandler,
   merchantSubmitHandler,
-  orderCreditHandler,
   ownerReviewApproveHandler,
   ownerReviewHandler,
   ownerDecision,
-  panHandler,
-  shopSettlementRequestHandler,
-  shopSettlementsHandler,
-  walletHandler,
-  withdrawHandler,
 } from '../src/functions/growth';
 import { mockCompleteHandler } from '../src/functions/payments';
-import { counterCashHandler, counterOpenHandler, counterPackHandler } from '../src/functions/shop';
 import { shopItemCreateHandler, shopLicenceSubmitHandler } from '../src/functions/shop';
 import { getMeHandler } from '../src/functions/me';
-import { refundFee } from '../src/lib/orders';
 import { onboardingReminders, payoutCheck } from '../src/lib/growth/merchants';
-import { walletEntry } from '../src/lib/growth/common';
+import { createPayout } from '../src/lib/growth/payouts';
 import { body, call, errorCode, makeListedShop, makeUser, signIn } from './helpers';
-import { packedOrder } from './orderHelpers';
 
 const db = () => getDb();
 const png =
@@ -246,10 +234,18 @@ describe('agent onboarding → subscription → live → one ₹1,000 payout', (
     const [live] = await db().select().from(shops).where(eq(shops.id, draft.id));
     expect(live).toMatchObject({ onboardingStatus: 'live', isLive: true });
 
-    const wallet = walletViewSchema.parse(
-      (await call(walletHandler, { session: agent.session })).jsonBody,
+    const me0 = agentMeSchema.parse(
+      (await call(agentMeHandler, { session: agent.session })).jsonBody,
     );
-    expect(wallet.balancePaise).toBe(100000);
+    expect(me0.payouts).toHaveLength(1);
+    expect(me0.payouts[0]).toMatchObject({
+      amountPaise: 100000,
+      tdsPaise: 0,
+      netPaise: 100000,
+      status: 'pending',
+      blocked: null,
+    });
+    expect(me0).toMatchObject({ pendingPaise: 100000, paidPaise: 0, fyEarnedPaise: 100000 });
     await payoutCheck(db());
     await payoutCheck(db());
     expect(await db().select().from(agentPayouts)).toHaveLength(1);
@@ -261,11 +257,33 @@ describe('agent onboarding → subscription → live → one ₹1,000 payout', (
       params: { id: draft.id },
       body: { helped: true },
     });
-    expect(body<MerchantDraft>(fb)).toMatchObject({ feedbackGiven: true, payout: 'credited' });
+    expect(body<MerchantDraft>(fb)).toMatchObject({ feedbackGiven: true, payout: 'pending' });
+
+    // The admin sends the ₹1,000 to the agent's UPI ID and records the UTR.
+    const sent = await call(adminPayoutSentHandler, {
+      method: 'POST',
+      session: adminUser.session,
+      params: { id: me0.payouts[0]!.id },
+      body: { utr: 'UTR123456789012' },
+    });
+    expect(sent.status).toBe(204);
     const me = agentMeSchema.parse(
       (await call(agentMeHandler, { session: agent.session })).jsonBody,
     );
-    expect(me.merchants[0]).toMatchObject({ status: 'live', payout: 'credited' });
+    expect(me.merchants[0]).toMatchObject({ status: 'live', payout: 'sent' });
+    expect(me.payouts[0]).toMatchObject({ status: 'sent', utr: 'UTR123456789012' });
+    expect(me).toMatchObject({ paidPaise: 100000, pendingPaise: 0 });
+    // A sent payout cannot be sent again.
+    expect(
+      (
+        await call(adminPayoutSentHandler, {
+          method: 'POST',
+          session: adminUser.session,
+          params: { id: me0.payouts[0]!.id },
+          body: { utr: 'UTR123456789012' },
+        })
+      ).status,
+    ).toBe(409);
   });
 
   it('reminds the agent once at 24 hours and once at 48 hours while the owner has not answered', async () => {
@@ -359,296 +377,169 @@ describe('agent onboarding → subscription → live → one ₹1,000 payout', (
     const first = await signIn(phone);
     const u = (await db().select().from(users).where(eq(users.phoneE164, phone)))[0]!;
     await db()
-      .insert(wallets)
-      .values({ userId: u.id, upiEnc: 'x', upiHash: `h-${u.id}`, upiHint: 'h' });
-    await db().insert(agents).values({
-      userId: u.id,
-      code: 'DXA-ABCDEF',
-      name: 'Dev',
-      agreementVersion: 'v',
-      agreementAcceptedAt: new Date(),
-    });
+      .insert(agents)
+      .values({
+        userId: u.id,
+        code: 'DXA-ABCDEF',
+        name: 'Dev',
+        upiEnc: 'x',
+        upiHash: `h-${u.id}`,
+        upiHint: 'h',
+        agreementVersion: 'v',
+        agreementAcceptedAt: new Date(),
+      });
     const second = await signIn(phone);
     expect((await call(getMeHandler, { session: second })).status).toBe(200);
     expect((await call(getMeHandler, { session: first })).status).toBe(401);
   });
-
-  it('counts visits to an active influencer link only', async () => {
-    const inf = await makeUser();
-    const reg = await call(influencerRegisterHandler, {
-      method: 'POST',
-      session: inf.session,
-      body: { handle: '@visits', platform: 'instagram', upiId: 'visits@ybl', acceptTerms: true },
-    });
-    const code = body<{ code: string }>(reg).code;
-    const visit = (c: string) =>
-      call(linkVisitHandler, { method: 'POST', params: { code: c }, ip: '10.9.9.9' });
-    expect((await visit(code)).status).toBe(204); // pending: not counted
-    await db().execute(`update influencers set status = 'active' where code = '${code}'` as never);
-    await visit(code);
-    await visit(code);
-    expect((await visit('not-a-code')).status).toBe(204);
-    const me = body<{ visits: number }>(await call(influencerMeHandler, { session: inf.session }));
-    expect(me.visits).toBe(2);
-  });
-
-  it('an influencer who brought the agent gets ₹10 once, on the first live merchant', async () => {
-    const inf = await makeUser();
-    const reg = await call(influencerRegisterHandler, {
-      method: 'POST',
-      session: inf.session,
-      body: { handle: '@hydfoodie', platform: 'instagram', upiId: 'foodie@ybl', acceptTerms: true },
-    });
-    const code = body<{ code: string }>(reg).code;
-    await db().execute(`update influencers set status = 'active' where code = '${code}'` as never);
-    const agent = await activeAgent({ recruitCode: code });
-    const { draft, token } = await merchantInReview(agent);
-    await payOnline(token);
-    const adminUser = await makeUser('admin');
-    const [lic] = (
-      await db().execute<{ id: string }>(
-        `select id from shop_licences where shop_id = '${draft.id}'` as never,
-      )
-    ).rows;
-    await call(licenceVerifyHandler, {
-      method: 'POST',
-      session: adminUser.session,
-      params: { id: lic!.id },
-      body: {},
-    });
-    const w = walletViewSchema.parse(
-      (await call(walletHandler, { session: inf.session })).jsonBody,
-    );
-    expect(w.balancePaise).toBe(1000);
-    expect(w.ledger.map((l) => l.reason)).toEqual(['recruit_reward']);
-  });
 });
 
-describe('referrals and credit (G11, G12)', () => {
-  it('₹10 credit when the referred person’s first order is packed; a fee refund reverses it', async () => {
-    const shop = await makeListedShop();
-    const referrer = await makeUser();
-    const code = creditViewSchema.parse(
-      (await call(creditHandler, { session: referrer.session })).jsonBody,
-    ).referralCode;
-    expect(code).toMatch(/^DXR-/);
-    const friend = await makeUser();
-    expect(
-      errorCode(
-        await call(claimHandler, { method: 'POST', session: referrer.session, body: { code } }),
-      ),
-    ).toBe('own_code');
-    expect(
-      (await call(claimHandler, { method: 'POST', session: friend.session, body: { code } }))
-        .status,
-    ).toBe(200);
-    expect(
-      errorCode(
-        await call(claimHandler, { method: 'POST', session: friend.session, body: { code } }),
-      ),
-    ).toBe('already_referred');
-
-    const p = await packedOrder(shop, [[0, 1]], friend);
-    const credit = creditViewSchema.parse(
-      (await call(creditHandler, { session: referrer.session })).jsonBody,
-    );
-    expect(credit).toMatchObject({ balancePaise: 1000, invited: 1, rewarded: 1 });
-
-    // a second packed order by the friend earns nothing more
-    await packedOrder(shop, [[1, 1]], friend);
-    expect(
-      creditViewSchema.parse((await call(creditHandler, { session: referrer.session })).jsonBody)
-        .balancePaise,
-    ).toBe(1000);
-
-    await refundFee(db(), p.order.id, null, 'test refund');
-    expect(
-      creditViewSchema.parse((await call(creditHandler, { session: referrer.session })).jsonBody)
-        .balancePaise,
-    ).toBe(0);
-    const rows = await db()
-      .select()
-      .from(creditLedger)
-      .where(eq(creditLedger.userId, referrer.user.id));
-    expect(rows.map((r) => r.reason).sort()).toEqual(['referral', 'reversal']);
-  });
-
-  it('credit comes off the bill at the counter, is owed to the merchant and settled once a day', async () => {
-    const shop = await makeListedShop();
-    const customer = await makeUser();
-    await db().insert(creditLedger).values({
-      userId: customer.user.id,
-      deltaPaise: 1500,
-      reason: 'referral',
-      refId: 'seed-credit',
-    });
-    const p = await packedOrder(shop, [[0, 1]], customer); // ₹100 bill
-    const asked = await call(orderCreditHandler, {
-      method: 'POST',
-      session: customer.session,
-      params: { id: p.order.id },
-      body: { amountPaise: 999999 },
-    });
-    expect(body<{ creditRequestedPaise: number }>(asked).creditRequestedPaise).toBe(1500); // capped at balance
-
-    const open = await call(counterOpenHandler, {
-      method: 'POST',
-      session: shop.cashier.session,
-      body: { qr: p.pickupQr },
-    });
-    const id = { params: { id: body<{ id: string }>(open).id } };
-    await call(counterPackHandler, {
-      method: 'POST',
-      session: shop.cashier.session,
-      ...id,
-      body: { qr: p.sticker.qr },
-    });
-    const short = await call(counterCashHandler, {
-      method: 'POST',
-      session: shop.cashier.session,
-      ...id,
-      body: { receivedPaise: 8400 },
-    });
-    expect(errorCode(short)).toBe('cash_short'); // due is ₹100 − ₹15 = ₹85
-    const paid = await call(counterCashHandler, {
-      method: 'POST',
-      session: shop.cashier.session,
-      ...id,
-      body: { receivedPaise: 8500 },
-    });
-    expect(paid.status).toBe(200);
-    const view = await call((await import('../src/functions/orders')).orderHandler, {
-      session: customer.session,
-      params: { id: p.order.id },
-    });
-    const bill = billSchema.parse((view.jsonBody as { bill: unknown }).bill);
-    expect(bill).toMatchObject({ totalPaise: 10000, creditPaise: 1500, paidPaise: 8500 });
-    expect(
-      creditViewSchema.parse((await call(creditHandler, { session: customer.session })).jsonBody)
-        .balancePaise,
-    ).toBe(0);
-
-    // the platform owes the shop the ₹15; the owner asks for it once a day
-    const before = await call(shopSettlementsHandler, { session: shop.owner.session });
-    expect(before.jsonBody).toMatchObject({ owedPaise: 1500, canRequestToday: true });
-    const req = await call(shopSettlementRequestHandler, {
-      method: 'POST',
-      session: shop.owner.session,
-    });
-    expect(req.jsonBody).toMatchObject({ owedPaise: 0, canRequestToday: false });
-    const again = await call(shopSettlementRequestHandler, {
-      method: 'POST',
-      session: shop.owner.session,
-    });
-    expect(errorCode(again)).toBe('settlement_today');
-    const s = (
-      req.jsonBody as { settlements: { id: string; amountPaise: number; bills: number }[] }
-    ).settlements[0]!;
-    expect(s).toMatchObject({ amountPaise: 1500, bills: 1 });
-    const adminUser = await makeUser('admin');
-    const done = await call(adminSettlementPaidHandler, {
-      method: 'POST',
-      session: adminUser.session,
-      params: { id: s.id },
-      body: { utr: 'UTR123456789' },
-    });
-    expect(done.status).toBe(204);
-  });
-});
-
-describe('wallet withdrawals (G13)', () => {
-  async function walletWith(paise: number) {
-    const person = await makeUser();
-    await call(influencerRegisterHandler, {
-      method: 'POST',
-      session: person.session,
-      body: {
-        handle: '@x',
-        platform: 'youtube',
-        upiId: `w${Math.random().toString(36).slice(2, 8)}@ybl`,
-        acceptTerms: true,
-      },
-    });
-    const [w] = await db().select().from(wallets).where(eq(wallets.userId, person.user.id));
-    await db().transaction((tx) => walletEntry(tx, w!.id, 'onboarding', `seed-${w!.id}`, paise));
-    return { person, walletId: w!.id };
-  }
-  const out = (session: string, amountPaise: number, key = `${Math.random()}`) =>
-    call(withdrawHandler, {
-      method: 'POST',
-      session,
-      body: { amountPaise },
-      headers: { 'idempotency-key': `withdraw-${key}` },
-    });
-
-  it('any number a day up to ₹2,000 in total; retries with the same key count once', async () => {
-    const { person } = await walletWith(500000);
-    expect((await out(person.session, 150000, 'a')).status).toBe(200);
-    expect((await out(person.session, 150000, 'a')).status).toBe(200); // same key: no second withdrawal
-    expect(errorCode(await out(person.session, 50001))).toBe('withdraw_daily_cap');
-    expect((await out(person.session, 50000)).status).toBe(200);
-    const w = walletViewSchema.parse(
-      (await call(walletHandler, { session: person.session })).jsonBody,
-    );
-    expect(w).toMatchObject({ balancePaise: 300000, todayRemainingPaise: 0 });
-  });
-
-  it('two withdrawals at once cannot pass the cap together', async () => {
-    const { person } = await walletWith(500000);
-    const [a, b] = await Promise.all([out(person.session, 150000), out(person.session, 150000)]);
-    expect([a.status, b.status].sort()).toEqual([200, 409]);
-  });
-
-  it('a failed transfer returns the money once; three failures freeze the wallet', async () => {
-    const { person, walletId } = await walletWith(500000);
-    const adminUser = await makeUser('admin');
-    for (let i = 0; i < 3; i++) {
-      await out(person.session, 10000);
-      const [row] = await db()
-        .execute<{ id: string }>(
-          `select id from withdrawals where wallet_id = '${walletId}' and status = 'requested'` as never,
-        )
-        .then((r) => r.rows);
-      const res = await call(adminWithdrawalFailedHandler, {
-        method: 'POST',
-        session: adminUser.session,
-        params: { id: row!.id },
-        body: { reason: 'Invalid VPA' },
-      });
-      expect(res.status).toBe(204);
-      const again = await call(adminWithdrawalFailedHandler, {
-        method: 'POST',
-        session: adminUser.session,
-        params: { id: row!.id },
-        body: { reason: 'Invalid VPA' },
-      });
-      expect(again.status).toBe(409);
+describe('agent payouts straight to the UPI ID (G9, G13)', () => {
+  /** `n` shops that went live for this agent, each with its ₹1,000 payout, made the real way. */
+  async function livePayouts(agent: { user: { id: string } }, n: number) {
+    const [a] = await db().select().from(agents).where(eq(agents.userId, agent.user.id));
+    const ids: string[] = [];
+    for (let k = 0; k < n; k++) {
+      const [shop] = await db()
+        .insert(shops)
+        .values({
+          shortCode: `P${Math.random().toString(36).slice(2, 7).toUpperCase()}`,
+          name: `Payout shop ${k + 1}`,
+          area: 'Test',
+          onboardingStatus: 'live',
+          onboardedByAgentId: a!.id,
+          isLive: true,
+        })
+        .returning();
+      const p = await db().transaction((tx) => createPayout(tx, a!, shop!));
+      ids.push(p!.id);
     }
-    const w = walletViewSchema.parse(
-      (await call(walletHandler, { session: person.session })).jsonBody,
+    return ids;
+  }
+  const me = async (session: string) =>
+    agentMeSchema.parse((await call(agentMeHandler, { session })).jsonBody) as AgentMe;
+  const adminDo = (
+    session: string,
+    handler: Parameters<typeof call>[0],
+    id: string,
+    bodyIn: unknown = {},
+  ) => call(handler, { method: 'POST', session, params: { id }, body: bodyIn });
+
+  it('a failed transfer is retried once the agent corrects their UPI ID', async () => {
+    const agent = await activeAgent();
+    const adminUser = await makeUser('admin');
+    const [id] = await livePayouts(agent, 1);
+    const failed = await adminDo(adminUser.session, adminPayoutFailedHandler, id!, {
+      reason: 'Invalid VPA',
+    });
+    expect(failed.status).toBe(204);
+    expect((await me(agent.session)).payouts[0]).toMatchObject({
+      status: 'failed',
+      failureReason: 'Invalid VPA',
+    });
+    // failing it twice, or sending a failed one, is refused
+    expect(
+      (await adminDo(adminUser.session, adminPayoutFailedHandler, id!, { reason: 'once more' }))
+        .status,
+    ).toBe(409);
+    expect(
+      (await adminDo(adminUser.session, adminPayoutSentHandler, id!, { utr: 'UTR000000001' }))
+        .status,
+    ).toBe(409);
+
+    // The agent gives a new UPI ID: the failed payout is queued again for it.
+    const upi = await call(agentUpiHandler, {
+      method: 'PUT',
+      session: agent.session,
+      body: { upiId: 'ramesh.new@okaxis' },
+    });
+    expect(upi.status).toBe(200);
+    expect(agentMeSchema.parse(upi.jsonBody)).toMatchObject({ upiHint: 'ra•••@okaxis' });
+    expect((await me(agent.session)).payouts[0]).toMatchObject({ status: 'pending' });
+    const list = body<{ id: string; status: string; failedAttempts: number }[]>(
+      await call(adminPayoutsHandler, { session: adminUser.session, query: { status: 'pending' } }),
     );
-    expect(w).toMatchObject({ balancePaise: 500000, frozen: true });
-    expect(errorCode(await out(person.session, 100))).toBe('withdraw_frozen');
+    expect(list.find((p) => p.id === id)).toMatchObject({ failedAttempts: 1 });
+    // ...and the admin can also retry a failed one directly
+    await adminDo(adminUser.session, adminPayoutFailedHandler, id!, { reason: 'again' });
+    expect((await adminDo(adminUser.session, adminPayoutRetryHandler, id!)).status).toBe(204);
+    expect((await me(agent.session)).payouts[0]).toMatchObject({ status: 'pending' });
   });
 
-  it('pauses at ₹20,000 earned until a PAN is given, then deducts 2% on the excess only', async () => {
-    const { person } = await walletWith(2050000);
-    expect(errorCode(await out(person.session, 100000))).toBe('withdraw_pan_required');
-    const pan = await call(panHandler, {
+  it('holds payouts from ₹20,000 earned in the year until the PAN is given, then 2% TDS on the excess only', async () => {
+    const agent = await activeAgent();
+    const adminUser = await makeUser('admin');
+    const ids = await livePayouts(agent, 20); // ₹20,000 this year
+    let view = await me(agent.session);
+    expect(view).toMatchObject({
+      fyEarnedPaise: 20 * AGENT_PAYOUT_PAISE,
+      panOnFile: false,
+      panPrompt: true,
+      panRequired: true,
+    });
+    expect(view.payouts.every((p) => p.blocked === 'pan_required')).toBe(true);
+    expect(view.payouts.every((p) => p.tdsPaise === 0)).toBe(true); // nothing above the threshold yet
+    expect(
+      errorCode(
+        await adminDo(adminUser.session, adminPayoutSentHandler, ids[0]!, { utr: 'UTR000000002' }),
+      ),
+    ).toBe('pan_required');
+
+    const pan = await call(agentPanHandler, {
       method: 'POST',
-      session: person.session,
+      session: agent.session,
       body: { pan: 'abcde1234f' },
     });
-    expect(walletViewSchema.parse(pan.jsonBody).panOnFile).toBe(true);
-    expect((await out(person.session, 100000)).status).toBe(200);
-    const w = walletViewSchema.parse(
-      (await call(walletHandler, { session: person.session })).jsonBody,
-    );
-    expect(w.withdrawals[0]).toMatchObject({ amountPaise: 100000, tdsPaise: 1000 }); // 2% of ₹500
+    expect(agentMeSchema.parse(pan.jsonBody)).toMatchObject({
+      panOnFile: true,
+      panRequired: false,
+    });
+    expect(
+      (await adminDo(adminUser.session, adminPayoutSentHandler, ids[0]!, { utr: 'UTR000000002' }))
+        .status,
+    ).toBe(204);
     // the PAN is stored encrypted, only its last 4 in clear
-    const [row] = await db().select().from(wallets).where(eq(wallets.userId, person.user.id));
+    const [row] = await db().select().from(agents).where(eq(agents.userId, agent.user.id));
     expect(row!.panEnc).not.toContain('ABCDE1234F');
     expect(row!.panLast4).toBe('234F');
+
+    // The 21st shop: ₹1,000 above the threshold → ₹20 TDS, ₹980 reaches the agent.
+    await livePayouts(agent, 1);
+    view = await me(agent.session);
+    const latest = view.payouts[0]!;
+    expect(latest).toMatchObject({ amountPaise: 100000, tdsPaise: 2000, netPaise: 98000 });
+    expect(view.fyEarnedPaise).toBe(21 * AGENT_PAYOUT_PAISE);
+  });
+
+  it('a reversed payout suspends the agent; a UPI ID belongs to one agent', async () => {
+    const agent = await activeAgent();
+    const adminUser = await makeUser('admin');
+    const [id] = await livePayouts(agent, 1);
+    await adminDo(adminUser.session, adminPayoutSentHandler, id!, { utr: 'UTR000000003' });
+    expect(
+      (
+        await adminDo(adminUser.session, adminPayoutReverseHandler, id!, {
+          reason: 'Subscription refunded',
+        })
+      ).status,
+    ).toBe(204);
+    expect((await me(agent.session)).payouts[0]).toMatchObject({ status: 'reversed' });
+    const [a] = await db().select().from(agents).where(eq(agents.userId, agent.user.id));
+    expect(a!.status).toBe('suspended');
+
+    const other = await makeUser();
+    const reg = await call(agentRegisterHandler, {
+      method: 'POST',
+      session: other.session,
+      body: { name: 'Other', upiId: 'shared@okaxis', acceptTerms: true },
+    });
+    expect(reg.status).toBe(201);
+    const taken = await call(agentUpiHandler, {
+      method: 'PUT',
+      session: agent.session,
+      body: { upiId: 'shared@okaxis' },
+    });
+    expect(errorCode(taken)).toBe('upi_in_use');
   });
 });
 

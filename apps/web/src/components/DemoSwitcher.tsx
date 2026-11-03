@@ -13,7 +13,6 @@ import { useDemoInfo, useDemoLogin } from '../lib/queries';
 import {
   BriefcaseBusiness,
   CreditCard,
-  Megaphone,
   Package,
   ReceiptText,
   ShieldCheck,
@@ -34,12 +33,11 @@ const ROLE_ICON: Record<string, LucideIcon> = {
   marshal: TrafficCone,
   admin: ShieldCheck,
   agent: BriefcaseBusiness,
-  influencer: Megaphone,
 };
 
 /** Agents and influencers are customer accounts with a growth profile: shown as their own kind. */
 const kindOf = (a: DemoAccount) => a.profile ?? a.role;
-const PROFILE_HOME: Record<string, string> = { agent: '/agent', influencer: '/influencer' };
+const PROFILE_HOME: Record<string, string> = { agent: '/agent' };
 
 /** One account per role is enough to explore; the rest stay in the full list. */
 export function pickHighlights(accounts: DemoAccount[]): DemoAccount[] {

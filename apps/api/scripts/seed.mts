@@ -757,7 +757,7 @@ await demoOrder(92, 'DEM092', 'packed', [
   { idx: 3, qty: 2 },
 ]);
 
-// ---- Growth program: influencer, agent and their shops, wallets, referrals and credit ----
+// ---- Growth program: agents (gig workers), their shops and payouts ----
 const [admin] = await db
   .select()
   .from(users)
@@ -766,11 +766,6 @@ const growth = await seedGrowth(db, {
   phone,
   adminId: admin!.id,
   upsertCustomer: (n, name) => upsertUser(phone(n), 'customer', name),
-  demoOrder: (n, code, status) =>
-    demoOrder(n, code, status, [
-      { idx: 0, qty: 1 },
-      { idx: 5, qty: 2 },
-    ]),
 });
 
 await closeDb();
@@ -782,11 +777,9 @@ console.log(`Seeded Diwali Express Pickup demo data.
     marshal      ${phone(51)} (Gachibowli)
     customer     ${phone(99)}
     customers    ${phone(91)} (order placed)   ${phone(92)} (order packed)
-    agent        ${phone(61)} (gig worker: 3 shops, wallet)
+    agent        ${phone(61)} (gig worker: 4 shops, one payout sent, one waiting)
     new agent    ${phone(62)} (waiting for admin approval)
-    influencer   ${phone(71)} (link visits, referrals, wallet)
-    referred     ${phone(93)} (rewarded)   ${phone(94)} (pending)   ${phone(95)} (via influencer)
-  ${`Agent ${growth.agentCode} · influencer ${growth.influencerCode}${growth.reviewToken ? ` · owner review link /m/review/${growth.reviewToken}` : ''}`}
+  ${`Agent ${growth.agentCode}${growth.reviewToken ? ` · owner review link /m/review/${growth.reviewToken}` : ''}`}
   Barcodes at SLC01: 891 + item number, e.g. 8910001
   Packed order DEM-092 — pickup QR: ${encodeOrderQr('customer', DEMO_PICKUP_SECRET)}
                          pack sticker: ${encodeOrderQr('pack', DEMO_PACK_SECRET)}`);

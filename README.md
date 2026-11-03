@@ -51,20 +51,18 @@ change, update its `DATABASE_URL` to port 5433.
 uses the **mock payment provider** (test page, no real money), and shops without YouPI-PG settings
 get a **simulated counter UPI**. Both are refused when `APP_ENV=prod`.
 
-| Seeded account | Phone                     | Notes                                                                                   |
-| -------------- | ------------------------- | --------------------------------------------------------------------------------------- |
-| Admin          | +91 90000 00001           |                                                                                         |
-| Shop owner     | +91 90000 00011           | Sri Lakshmi Crackers (SLC01)                                                            |
-| Shop staff     | +91 90000 00012           | SLC01: confirms orders                                                                  |
-| Packer         | +91 90000 00013           | SLC01: barcodes are `891` + item no., e.g. `8910001`                                    |
-| Cashier        | +91 90000 00014           | SLC01: Express Pickup                                                                   |
-| Gate marshal   | +91 90000 00051           | Gachibowli Stadium Ground                                                               |
-| Customer       | +91 90000 00099           | Ravi: referral code, ₹10 credit from a friend's order                                   |
-| Customers      | +91 90000 00091 / 92      | An order waiting for the shop / a packed order                                          |
-| Agent          | +91 90000 00061           | Gig worker: 3 shops (draft, owner's review, live), wallet with a payout and withdrawals |
-| New agent      | +91 90000 00062           | Waiting for approval in **Admin → Agents**                                              |
-| Influencer     | +91 90000 00071           | Link visits, a referred follower, the recruited agent, wallet                           |
-| Referred       | +91 90000 00093 / 94 / 95 | Friend rewarded / friend not ordered yet / came through the influencer                  |
+| Seeded account | Phone                | Notes                                                                                               |
+| -------------- | -------------------- | --------------------------------------------------------------------------------------------------- |
+| Admin          | +91 90000 00001      |                                                                                                     |
+| Shop owner     | +91 90000 00011      | Sri Lakshmi Crackers (SLC01)                                                                        |
+| Shop staff     | +91 90000 00012      | SLC01: confirms orders                                                                              |
+| Packer         | +91 90000 00013      | SLC01: barcodes are `891` + item no., e.g. `8910001`                                                |
+| Cashier        | +91 90000 00014      | SLC01: Express Pickup                                                                               |
+| Gate marshal   | +91 90000 00051      | Gachibowli Stadium Ground                                                                           |
+| Customer       | +91 90000 00099      | Clean account                                                                                       |
+| Customers      | +91 90000 00091 / 92 | An order waiting for the shop / a packed order                                                      |
+| Agent          | +91 90000 00061      | Gig worker: 4 shops (consent pending, owner's review, two live); one ₹1,000 paid (UTR), one waiting |
+| New agent      | +91 90000 00062      | Waiting for approval in **Admin → Agents**                                                          |
 
 `pnpm db:seed` prints the packed demo order's pickup and pack-sticker QR texts, which can be typed
 at the counter. Shop `SAI01` starts with a pending licence: approve it in **Admin → Licences**.

@@ -14,7 +14,7 @@ const tabs = [
   'blocked',
   'agents',
   'payouts',
-  'settlements',
+  'subscriptions',
   'feedback',
 ] as const;
 

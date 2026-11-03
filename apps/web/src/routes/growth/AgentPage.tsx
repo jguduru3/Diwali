@@ -1,7 +1,7 @@
-import { useEffect, useState, type FormEvent } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useState, type FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { isValidGstin, type MerchantDraft } from '@pataka/shared';
+import { formatPaise, isValidGstin, type AgentMe, type MerchantDraft } from '@pataka/shared';
 import { ErrorText } from '../../components/ErrorText';
 import { QrCode } from '../../components/QrCode';
 import {
@@ -19,7 +19,9 @@ import {
 import { ApiRequestError } from '../../lib/api';
 import {
   useAgentMe,
+  useAgentPan,
   useAgentRegister,
+  useAgentUpi,
   useMerchantAction,
   useNewMerchant,
   useNotifications,
@@ -27,6 +29,7 @@ import {
 import { openShopSetup } from '../../lib/queries';
 import { TermsCheck } from './TermsCheck';
 import { Circle, CircleCheck } from 'lucide-react';
+import { dateTimeIST } from '../../lib/format';
 import { Icon } from '../../components/Icon';
 
 const STEPS = ['draft', 'setup', 'review', 'approved', 'live'] as const;
@@ -59,18 +62,13 @@ export function ShareLink({ url, text }: { url: string; text: string }) {
 function Register() {
   const { t } = useTranslation();
   const reg = useAgentRegister();
-  const [f, setF] = useState({
-    name: '',
-    upiId: '',
-    recruitCode: localStorage.getItem('pp.recruit') ?? '',
-  });
+  const [f, setF] = useState({ name: '', upiId: '' });
   const [terms, setTerms] = useState(false);
   const submit = (e: FormEvent) => {
     e.preventDefault();
     reg.mutate({
       name: f.name.trim(),
       upiId: f.upiId.trim(),
-      recruitCode: f.recruitCode.trim() || undefined,
       acceptTerms: terms as true,
     });
   };
@@ -87,19 +85,12 @@ function Register() {
             onChange={(e) => setF({ ...f, name: e.target.value })}
           />
         </Field>
-        <Field label={t('wallet.upiId')} hint={t('wallet.upiHint')}>
+        <Field label={t('agent.payouts.upiId')} hint={t('agent.payouts.upiHint')}>
           <Input
             required
             value={f.upiId}
             onChange={(e) => setF({ ...f, upiId: e.target.value })}
             placeholder="name@bank" // i18n-ignore: format example
-          />
-        </Field>
-        <Field label={t('agent.recruitCode')} hint={t('agent.recruitHint')}>
-          <Input
-            value={f.recruitCode}
-            onChange={(e) => setF({ ...f, recruitCode: e.target.value.toUpperCase() })}
-            placeholder="DXI-…" // i18n-ignore: format example
           />
         </Field>
         <TermsCheck party="agent" checked={terms} onChange={setTerms} />
@@ -287,8 +278,10 @@ function MerchantCard({ m, link }: { m: MerchantDraft; link?: string | null }) {
         </div>
         {m.status === 'closed' ? (
           <Badge tone="danger">{t('agent.step.closed')}</Badge>
-        ) : m.payout === 'credited' ? (
+        ) : m.payout === 'sent' ? (
           <Badge tone="emerald">{t('agent.paid')}</Badge>
+        ) : m.payout === 'pending' || m.payout === 'failed' ? (
+          <Badge tone="gold">{t('agent.payoutPending')}</Badge>
         ) : null}
       </div>
       <Steps status={m.status} />
@@ -422,15 +415,135 @@ function MerchantCard({ m, link }: { m: MerchantDraft; link?: string | null }) {
   );
 }
 
-/** Agent portal: code, merchants and each one's steps; money is in the wallet. */
+/** Each ₹1,000 goes straight to the agent's UPI ID: where, how much so far, PAN when needed. */
+function Payouts({ me }: { me: AgentMe }) {
+  const { t } = useTranslation();
+  const setPan = useAgentPan();
+  const setUpi = useAgentUpi();
+  const [pan, setPanText] = useState('');
+  const [upi, setUpiText] = useState('');
+  const [changing, setChanging] = useState(false);
+  return (
+    <Card className="space-y-4 p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold">{t('agent.payouts.title')}</h2>
+          <p className="text-sm text-muted">{t('agent.payouts.upiTo', { upi: me.upiHint })}</p>
+        </div>
+        <Button size="sm" variant="ghost" onClick={() => setChanging((v) => !v)}>
+          {t('agent.payouts.changeUpi')}
+        </Button>
+      </div>
+      {changing && (
+        <form
+          className="flex flex-wrap items-end gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setUpi.mutate(upi.trim(), { onSuccess: () => setChanging(false) });
+          }}
+        >
+          <Field label={t('agent.payouts.newUpi')} hint={t('agent.payouts.upiHint')}>
+            <Input
+              required
+              value={upi}
+              onChange={(e) => setUpiText(e.target.value)}
+              placeholder="name@bank" // i18n-ignore: format example
+            />
+          </Field>
+          <Button size="sm" disabled={setUpi.isPending}>
+            {t('agent.payouts.saveUpi')}
+          </Button>
+          <ErrorText error={setUpi.error} />
+        </form>
+      )}
+      <dl className="grid gap-3 sm:grid-cols-3">
+        {(
+          [
+            ['earned', me.fyEarnedPaise],
+            ['paid', me.paidPaise],
+            ['pending', me.pendingPaise],
+          ] as const
+        ).map(([k, v]) => (
+          <div key={k} className="rounded-xl bg-ivory p-3">
+            <dt className="text-xs font-semibold tracking-wide text-muted uppercase">
+              {t(`agent.payouts.${k}`, { fy: me.fy })}
+            </dt>
+            <dd className="font-display text-2xl font-semibold tabular-nums">{formatPaise(v)}</dd>
+          </div>
+        ))}
+      </dl>
+      {(me.panRequired || me.panPrompt) && !me.panOnFile && (
+        <form
+          className="space-y-2 rounded-xl border border-saffron/40 bg-saffron-bg p-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setPan.mutate(pan.trim());
+          }}
+        >
+          <p className="text-sm font-semibold">
+            {me.panRequired ? t('agent.payouts.panRequired') : t('agent.payouts.panPrompt')}
+          </p>
+          <div className="flex flex-wrap items-end gap-2">
+            <Field label={t('agent.payouts.pan')}>
+              <Input
+                required
+                maxLength={10}
+                value={pan}
+                onChange={(e) => setPanText(e.target.value.toUpperCase())}
+                placeholder="ABCDE1234F" // i18n-ignore: format example
+              />
+            </Field>
+            <Button size="sm" disabled={pan.trim().length !== 10 || setPan.isPending}>
+              {t('agent.payouts.savePan')}
+            </Button>
+          </div>
+          <ErrorText error={setPan.error} />
+        </form>
+      )}
+      {me.payouts.length === 0 ? (
+        <p className="text-sm text-muted">{t('agent.payouts.none')}</p>
+      ) : (
+        <ul className="divide-y divide-line rounded-xl border border-line">
+          {me.payouts.map((p) => (
+            <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+              <div>
+                <p className="font-semibold">{p.shopName}</p>
+                <p className="text-xs text-muted">
+                  {dateTimeIST(p.earnedAt)}
+                  {p.tdsPaise > 0 &&
+                    ` · ${t('agent.payouts.tds', { amount: formatPaise(p.tdsPaise) })}`}
+                  {p.utr && ` · UTR ${p.utr}`}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="font-semibold tabular-nums">{formatPaise(p.netPaise)}</p>
+                <Badge
+                  tone={
+                    p.status === 'sent'
+                      ? 'emerald'
+                      : p.status === 'failed' || p.status === 'reversed'
+                        ? 'danger'
+                        : p.blocked
+                          ? 'saffron'
+                          : 'gold'
+                  }
+                >
+                  {p.blocked
+                    ? t('agent.payouts.blockedPan')
+                    : t(`agent.payouts.status.${p.status}`)}
+                </Badge>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
+/** Agent portal: code, merchants and each one's steps, and the payouts for the shops that went live. */
 export function AgentPage() {
   const { t } = useTranslation();
-  // An influencer's agent link (/agent?recruit=DXI-…) pre-fills the code on registration.
-  const [params] = useSearchParams();
-  useEffect(() => {
-    const code = params.get('recruit');
-    if (code) localStorage.setItem('pp.recruit', code.toUpperCase());
-  }, [params]);
   const me = useAgentMe();
   const notes = useNotifications();
   const [links, setLinks] = useState<Record<string, string>>({});
@@ -469,9 +582,6 @@ export function AgentPage() {
             <Card className="space-y-3 p-5">
               <p className="text-sm">{t('agent.howPaid')}</p>
               <div className="flex flex-wrap gap-2">
-                <ButtonLink to="/wallet" variant="secondary" size="sm">
-                  {t('agent.openWallet')}
-                </ButtonLink>
                 <ButtonLink to="/terms/agent" variant="ghost" size="sm">
                   {t('agent.rules')}
                 </ButtonLink>
@@ -494,6 +604,8 @@ export function AgentPage() {
             ) : (
               <Button onClick={() => setAdding(true)}>+ {t('agent.newMerchant')}</Button>
             ))}
+
+          <Payouts me={me.data!} />
 
           {me.data!.merchants.length === 0 ? (
             <EmptyState title={t('agent.noMerchants')} body={t('agent.noMerchantsBody')} />

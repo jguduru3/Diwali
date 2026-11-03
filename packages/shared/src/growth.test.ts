@@ -5,12 +5,12 @@ import {
   generateCode,
   isValidPan,
   isValidUpiId,
-  maxRedeemable,
-  previousWeek,
+  payoutBlock,
+  PAN_PROMPT_PAISE,
+  panPrompt,
   SUBSCRIPTION_GST_PAISE,
   SUBSCRIPTION_PAISE,
   tdsFor,
-  withdrawalCheck,
 } from './growth';
 
 describe('codes', () => {
@@ -19,7 +19,7 @@ describe('codes', () => {
       const c = generateCode('DXA');
       expect(c).toMatch(/^DXA-[0-9A-HJKMNP-TV-Z]{6}$/);
     }
-    expect(generateCode('DXI', () => 0)).toBe('DXI-000000');
+    expect(generateCode('DXA', () => 0)).toBe('DXA-000000');
   });
 });
 
@@ -37,38 +37,19 @@ describe('financial year (IST, April to March)', () => {
   });
 });
 
-describe('withdrawals', () => {
-  const base = {
-    balancePaise: 500_000,
-    amountPaise: 100_000,
-    todayPaise: 0,
-    fyEarnedPaise: 0,
-    hasPan: false,
-    frozen: false,
-  };
-  it('allows any number a day up to ₹2,000 in total', () => {
-    expect(withdrawalCheck(base)).toEqual({ ok: true });
-    expect(withdrawalCheck({ ...base, todayPaise: 150_000, amountPaise: 50_000 })).toEqual({
-      ok: true,
-    });
-    expect(withdrawalCheck({ ...base, todayPaise: 150_000, amountPaise: 50_001 })).toMatchObject({
-      ok: false,
-      code: 'daily_cap',
-    });
+describe('payouts and the PAN gate', () => {
+  it('pays freely below ₹20,000 earned in the year', () => {
+    expect(payoutBlock({ fyEarnedPaise: 1_999_999, hasPan: false })).toBeNull();
   });
-  it('refuses more than the balance, a frozen wallet and a zero amount', () => {
-    expect(withdrawalCheck({ ...base, amountPaise: 500_001 })).toMatchObject({ code: 'balance' });
-    expect(withdrawalCheck({ ...base, frozen: true })).toMatchObject({ code: 'frozen' });
-    expect(withdrawalCheck({ ...base, amountPaise: 0 })).toMatchObject({ code: 'amount' });
+  it('holds a payout from ₹20,000 earned in the year until a PAN is on file', () => {
+    expect(payoutBlock({ fyEarnedPaise: 2_000_000, hasPan: false })).toBe('pan_required');
+    expect(payoutBlock({ fyEarnedPaise: 2_000_000, hasPan: true })).toBeNull();
   });
-  it('pauses at ₹20,000 earned in the year until a PAN is given', () => {
-    expect(withdrawalCheck({ ...base, fyEarnedPaise: 1_999_999 })).toEqual({ ok: true });
-    expect(withdrawalCheck({ ...base, fyEarnedPaise: 2_000_000 })).toMatchObject({
-      code: 'pan_required',
-    });
-    expect(withdrawalCheck({ ...base, fyEarnedPaise: 2_000_000, hasPan: true })).toEqual({
-      ok: true,
-    });
+  it('asks for the PAN from ₹18,000', () => {
+    expect(PAN_PROMPT_PAISE).toBe(1_800_000);
+    expect(panPrompt({ fyEarnedPaise: 1_799_999, hasPan: false })).toBe(false);
+    expect(panPrompt({ fyEarnedPaise: 1_800_000, hasPan: false })).toBe(true);
+    expect(panPrompt({ fyEarnedPaise: 1_800_000, hasPan: true })).toBe(false);
   });
 });
 
@@ -89,19 +70,11 @@ describe('TDS (2% above ₹20,000 earned in the year)', () => {
     expect(
       tdsFor({ fyEarnedPaise: 2_050_000, taxedBasePaise: 50_000, amountPaise: 200_000 }),
     ).toEqual({ tdsPaise: 0, basePaise: 0 });
-    // capped by the withdrawal itself
+    // capped by the payout itself
     expect(tdsFor({ fyEarnedPaise: 3_000_000, taxedBasePaise: 0, amountPaise: 100_000 })).toEqual({
       tdsPaise: 2_000,
       basePaise: 100_000,
     });
-  });
-});
-
-describe('credit at the counter', () => {
-  it('never more than the bill or the balance', () => {
-    expect(maxRedeemable(25_000, 1_000)).toBe(1_000);
-    expect(maxRedeemable(800, 1_000)).toBe(800);
-    expect(maxRedeemable(25_000, -50)).toBe(0);
   });
 });
 
@@ -128,18 +101,5 @@ describe('UPI ID and PAN', () => {
     expect(isValidUpiId('no-at-sign')).toBe(false);
     expect(isValidPan('ABCDE1234F')).toBe(true);
     expect(isValidPan('ABCD1234F')).toBe(false);
-  });
-});
-
-describe('weekly settlement period', () => {
-  it('is the previous Monday to Sunday in IST', () => {
-    expect(previousWeek(new Date('2026-11-09T03:30:00+05:30'))).toEqual({
-      start: '2026-11-02',
-      end: '2026-11-08',
-    });
-    expect(previousWeek(new Date('2026-11-12T10:00:00+05:30'))).toEqual({
-      start: '2026-11-02',
-      end: '2026-11-08',
-    });
   });
 });

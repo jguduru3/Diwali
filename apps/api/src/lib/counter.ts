@@ -24,7 +24,6 @@ import {
   transition,
   type Tx,
 } from './orders';
-import { holdCredit, redeemHeldCredit } from './growth/referrals';
 import { decryptSecret } from './secrets';
 import {
   YOUPI_SIGNATURE_HEADER,
@@ -135,10 +134,8 @@ async function readyForPayment(tx: Tx, shopId: string, orderId: string) {
   if (order.status !== 'packed') throw new HttpError(409, 'not_ready', 'This order is not packed');
   if (!order.packMatchedAt)
     throw new HttpError(409, 'pack_not_matched', 'Scan the pack sticker first');
-  // The customer's credit comes off the bill here, decided by the server with their balance
-  // locked (G11); the merchant collects the rest and the platform settles the credit (G3, G13).
-  const creditPaise = await holdCredit(tx, order);
-  return { ...order, creditPaise, duePaise: order.finalTotalPaise! - creditPaise };
+  // The server's final total is what the counter collects (G11).
+  return { ...order, duePaise: order.finalTotalPaise! };
 }
 
 async function cancelPending(tx: Tx, orderId: string) {
@@ -165,7 +162,6 @@ async function receive(
   if (pay.status === 'received' || order.status === 'completed') return order;
   if (pay.status !== 'pending')
     throw new HttpError(409, 'payment_closed', 'This payment was cancelled');
-  await redeemHeldCredit(tx, order.id);
   await tx
     .update(counterPayments)
     .set({ ...extra, status: 'received', receivedAt: new Date() })

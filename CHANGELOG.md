@@ -1,5 +1,23 @@
 # Changelog
 
+## Gig workers paid directly; referral network and wallets removed (2026-11-03)
+
+- **Owner's decision:** no referral network, influencer program, customer credit, credit
+  settlements or wallets. G12 and G13 amended in CLAUDE.md; G9 narrowed to agents.
+- **Agent payouts:** each ₹1,000 for a merchant that goes live is a transfer straight to the
+  agent's own UPI ID (kept encrypted on the agent). An admin sends it and records the UTR, can
+  mark a failed transfer (the agent is asked to check their UPI ID; a new UPI ID queues failed
+  payouts again), retry it, or reverse it (suspends the agent). TDS as approved by the CA: PAN
+  asked from ₹18,000 earned in the year, payouts held from ₹20,000 until it is given, 2% on the
+  part above ₹20,000, worked out per payout.
+- **Removed:** `/credit`, `/wallet`, `/influencer`, `/r/:code`, Shop → Credits, Admin →
+  Settlements (Admin → Subscriptions keeps the subscription list); the credit lines on bills and
+  the counter; the agent's recruit code.
+- **Migration 0016** moves UPI ID and PAN onto `agents`, turns `agent_payouts` into transfers
+  (status, TDS, UTR) and drops the referral, credit, settlement, withdrawal, wallet and
+  influencer tables.
+- Agent terms v2 (paid per shop to the UPI ID).
+
 ## Production-ready release (2026-11-03)
 
 - **Icons instead of emojis:** one line-icon set (lucide, 1.75 stroke) across every screen; the

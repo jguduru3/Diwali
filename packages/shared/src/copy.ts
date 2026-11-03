@@ -10,7 +10,7 @@ export const BANNED_COPY_TERMS = [
   'deliver',
   'delivered',
   '100% legal',
-  // growth program (referrals, wallets): rewards are credits and fees, never promised money
+  // growth program: agent payouts are fees for work done, never promised money
   'cashback',
   'earn money',
   'income',

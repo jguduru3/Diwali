@@ -34,7 +34,6 @@ const packedOrder: CustomerOrder = {
   id: ORDER_ID,
   code: 'K7Q-2M9',
   status: 'packed',
-  creditRequestedPaise: 0,
   shop: {
     shortCode: 'SLC01',
     name: 'Sri Lakshmi Crackers',
@@ -240,7 +239,6 @@ describe('Express Pickup counter', () => {
       id: ORDER_ID,
       code: 'K7Q-2M9',
       status: 'packed',
-      creditPaise: 0,
       customer: '••••••0099',
       lines: [],
       estimatedTotalPaise: 30000,

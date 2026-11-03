@@ -8,15 +8,12 @@ import {
   useAdminAct,
   useAdminAgents,
   useAdminFeedback,
-  useAdminInfluencers,
   useAdminPayouts,
-  useAdminSettlements,
   useAdminSubscriptions,
-  useAdminWithdrawals,
 } from '../../lib/growth';
 
 const tone = (s: string) =>
-  ['active', 'paid', 'sent', 'credited'].includes(s)
+  ['active', 'paid', 'sent'].includes(s)
     ? 'emerald'
     : ['suspended', 'failed', 'reversed', 'cancelled'].includes(s)
       ? 'danger'
@@ -77,12 +74,11 @@ export function AdminAgents() {
   const { t } = useTranslation();
   const f = useStatusFilter(['pending', 'active', 'suspended'], 'pending');
   const agents = useAdminAgents(f.status);
-  const influencers = useAdminInfluencers(f.status);
   const act = useAdminAct();
   return (
     <div className="space-y-5">
       {f.control}
-      <ErrorText error={agents.error ?? influencers.error ?? act.error} />
+      <ErrorText error={agents.error ?? act.error} />
       <h2 className="text-lg font-bold">{t('admin.agents')}</h2>
       {agents.isPending && <Spinner label={t('common.loading')} />}
       {agents.data?.length === 0 && <EmptyState title={t('admin.none')} />}
@@ -97,7 +93,6 @@ export function AdminAgents() {
                 <p className="text-sm text-muted">
                   {a.phoneMasked} ·{' '}
                   {t('admin.agentStats', { merchants: a.merchants, live: a.live })}
-                  {a.recruitedBy && ` · ${a.recruitedBy}`}
                 </p>
               </div>
               <Badge tone={tone(a.status)}>{t(`growthStatus.${a.status}`)}</Badge>
@@ -125,112 +120,78 @@ export function AdminAgents() {
           </Card>
         ))}
       </ul>
-      <h2 className="text-lg font-bold">{t('admin.influencers')}</h2>
-      <ul className="grid gap-3 lg:grid-cols-2">
-        {influencers.data?.map((i) => (
-          <Card as="li" key={i.id} className="space-y-2 p-4">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <p className="font-bold">
-                  {i.handle} · {i.code}
-                </p>
-                <p className="text-sm text-muted">
-                  {t(`influencer.platforms.${i.platform}`)} ·{' '}
-                  {t('admin.referred', { count: i.referred })}
-                </p>
-              </div>
-              <Badge tone={tone(i.status)}>{t(`growthStatus.${i.status}`)}</Badge>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {i.status !== 'active' && (
-                <Button
-                  size="sm"
-                  variant="success"
-                  onClick={() => act.mutate({ path: `influencers/${i.id}/approve` })}
-                >
-                  {t('admin.approve')}
-                </Button>
-              )}
-              {i.status !== 'suspended' && (
-                <Ask
-                  label={t('admin.reason')}
-                  action={t('admin.suspend')}
-                  onSubmit={(reason) =>
-                    act.mutate({ path: `influencers/${i.id}/suspend`, body: { reason } })
-                  }
-                />
-              )}
-            </div>
-          </Card>
-        ))}
-      </ul>
     </div>
   );
 }
 
+/** Each ₹1,000 goes from the payout account straight to the agent's UPI ID; the UTR is kept. */
 export function AdminPayouts() {
   const { t } = useTranslation();
-  const f = useStatusFilter(['requested', 'sent', 'failed'], 'requested');
-  const list = useAdminWithdrawals(f.status);
-  const payouts = useAdminPayouts();
+  const f = useStatusFilter(['pending', 'sent', 'failed', 'reversed'], 'pending');
+  const list = useAdminPayouts(f.status);
   const act = useAdminAct();
   return (
     <div className="space-y-5">
       <p className="text-sm text-muted">{t('admin.payoutsHelp')}</p>
       {f.control}
       <ErrorText error={list.error ?? act.error} />
+      {list.isPending && <Spinner label={t('common.loading')} />}
       {list.data?.length === 0 && <EmptyState title={t('admin.none')} />}
       <ul className="grid gap-3 lg:grid-cols-2">
-        {list.data?.map((w) => (
-          <Card as="li" key={w.id} className="space-y-2 p-4">
+        {list.data?.map((p) => (
+          <Card as="li" key={p.id} className="space-y-2 p-4">
             <div className="flex items-start justify-between gap-2">
               <div>
                 <p className="font-bold tabular-nums">
-                  {t('admin.payTo', { amount: formatPaise(w.payPaise), upi: w.upiHint })}
+                  {t('admin.payTo', { amount: formatPaise(p.netPaise), upi: p.upiHint })}
                 </p>
                 <p className="text-sm text-muted">
-                  {w.who} · {dateTimeIST(w.createdAt)}
-                  {w.tdsPaise > 0 && ` · ${t('wallet.tds', { amount: formatPaise(w.tdsPaise) })}`}
+                  {p.agentName} · {p.agentCode} · {p.phoneMasked}
                 </p>
-                {w.utr && <p className="text-xs text-muted">UTR {w.utr}</p>}
+                <p className="text-sm text-muted">
+                  {p.shopName} · {p.shopCode} · {dateTimeIST(p.earnedAt)}
+                  {p.tdsPaise > 0 &&
+                    ` · ${t('agent.payouts.tds', { amount: formatPaise(p.tdsPaise) })}`}
+                </p>
+                {p.utr && <p className="text-xs text-muted">UTR {p.utr}</p>}
+                {p.failureReason && (
+                  <p className="text-xs text-danger">
+                    {p.failureReason}
+                    {p.failedAttempts > 1 && ` (${p.failedAttempts})`}
+                  </p>
+                )}
               </div>
-              <Badge tone={tone(w.status)}>{t(`growthStatus.${w.status}`)}</Badge>
+              <Badge tone={p.blocked ? 'saffron' : tone(p.status)}>
+                {p.blocked ? t('admin.blockedPan') : t(`growthStatus.${p.status}`)}
+              </Badge>
             </div>
-            {w.status === 'requested' && (
+            {p.status === 'pending' && !p.blocked && (
               <div className="space-y-2">
                 <Ask
                   label={t('admin.utr')}
                   action={t('admin.markSent')}
                   pattern={/^[0-9A-Za-z]{6,30}$/}
-                  onSubmit={(utr) =>
-                    act.mutate({ path: `withdrawals/${w.id}/sent`, body: { utr } })
-                  }
+                  onSubmit={(utr) => act.mutate({ path: `payouts/${p.id}/sent`, body: { utr } })}
                 />
                 <Ask
                   label={t('admin.reason')}
                   action={t('admin.markFailed')}
                   onSubmit={(reason) =>
-                    act.mutate({ path: `withdrawals/${w.id}/failed`, body: { reason } })
+                    act.mutate({ path: `payouts/${p.id}/failed`, body: { reason } })
                   }
                 />
               </div>
             )}
-          </Card>
-        ))}
-      </ul>
-      <h2 className="text-lg font-bold">{t('admin.agentPayouts')}</h2>
-      <ul className="divide-y divide-line rounded-2xl border border-line bg-white">
-        {payouts.data?.map((p) => (
-          <li
-            key={p.id}
-            className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm"
-          >
-            <span>
-              {p.agentCode} · {p.shopCode} ·{' '}
-              <span className="tabular-nums">{formatPaise(p.amountPaise)}</span> ·{' '}
-              {dateTimeIST(p.at)}
-            </span>
-            {p.status === 'credited' ? (
+            {p.status === 'failed' && (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => act.mutate({ path: `payouts/${p.id}/retry` })}
+              >
+                {t('admin.retry')}
+              </Button>
+            )}
+            {p.status !== 'reversed' && (
               <Ask
                 label={t('admin.reason')}
                 action={t('admin.reverse')}
@@ -238,56 +199,23 @@ export function AdminPayouts() {
                   act.mutate({ path: `payouts/${p.id}/reverse`, body: { reason } })
                 }
               />
-            ) : (
-              <Badge tone="danger">{t('growthStatus.reversed')}</Badge>
             )}
-          </li>
+          </Card>
         ))}
       </ul>
     </div>
   );
 }
 
-export function AdminSettlements() {
+export function AdminSubscriptions() {
   const { t } = useTranslation();
-  const f = useStatusFilter(['pending', 'paid'], 'pending');
-  const list = useAdminSettlements(f.status);
   const subs = useAdminSubscriptions('');
   const act = useAdminAct();
   return (
     <div className="space-y-5">
-      <h2 className="text-lg font-bold">{t('admin.settlements')}</h2>
-      <p className="text-sm text-muted">{t('admin.settlementsHelp')}</p>
-      {f.control}
-      <ErrorText error={list.error ?? act.error} />
-      {list.data?.length === 0 && <EmptyState title={t('admin.none')} />}
-      <ul className="grid gap-3 lg:grid-cols-2">
-        {list.data?.map((s) => (
-          <Card as="li" key={s.id} className="space-y-2 p-4">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <p className="font-bold">
-                  {s.shopName} · {s.shopCode}
-                </p>
-                <p className="text-sm text-muted tabular-nums">
-                  {formatPaise(s.amountPaise)} · {t('settle.bills', { count: s.bills })} ·{' '}
-                  {s.upiHint ?? t('admin.noUpi')}
-                </p>
-              </div>
-              <Badge tone={tone(s.status)}>{t(`growthStatus.${s.status}`)}</Badge>
-            </div>
-            {s.status === 'pending' && (
-              <Ask
-                label={t('admin.utr')}
-                action={t('admin.markPaid')}
-                pattern={/^[0-9A-Za-z]{6,30}$/}
-                onSubmit={(utr) => act.mutate({ path: `settlements/${s.id}/paid`, body: { utr } })}
-              />
-            )}
-          </Card>
-        ))}
-      </ul>
       <h2 className="text-lg font-bold">{t('admin.subscriptions')}</h2>
+      <ErrorText error={subs.error ?? act.error} />
+      {subs.data?.length === 0 && <EmptyState title={t('admin.none')} />}
       <ul className="divide-y divide-line rounded-2xl border border-line bg-white">
         {subs.data?.map((s) => (
           <li

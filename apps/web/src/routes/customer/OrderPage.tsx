@@ -22,7 +22,6 @@ import {
   cx,
 } from '../../components/ui';
 import { dayIST, itemName, timeIST } from '../../lib/format';
-import { useCredit, useOrderCredit } from '../../lib/growth';
 import { loadPickupQr } from '../../lib/orderStore';
 import {
   useCancelOrder,
@@ -82,26 +81,6 @@ export function BillView({ bill }: { bill: Bill }) {
               {formatPaise(bill.totalPaise)}
             </td>
           </tr>
-          {bill.creditPaise > 0 && (
-            <>
-              <tr>
-                <td colSpan={3} className="pt-1 text-sm text-muted">
-                  {t('counter.creditLine')}
-                </td>
-                <td className="pt-1 text-right text-sm font-semibold">
-                  − {formatPaise(bill.creditPaise)}
-                </td>
-              </tr>
-              <tr>
-                <td colSpan={3} className="pt-1 font-semibold">
-                  {t('order.paidAmount')}
-                </td>
-                <td className="pt-1 text-right font-semibold">
-                  {formatPaise(bill.totalPaise - bill.creditPaise)}
-                </td>
-              </tr>
-            </>
-          )}
         </tfoot>
       </table>
       <p className="mt-4 text-center text-sm font-semibold">
@@ -464,37 +443,6 @@ function PickupArrivalAssistanceCard({ order }: { order: CustomerOrder }) {
   );
 }
 
-const CREDIT_OPEN = ['placed', 'confirmed', 'packing', 'awaiting_customer', 'packed'];
-
-/** Before pickup: use platform credit on this bill (the counter applies at most the balance). */
-function UseCredit({ order }: { order: CustomerOrder }) {
-  const { t } = useTranslation();
-  const credit = useCredit();
-  const set = useOrderCredit();
-  const balance = credit.data?.balancePaise ?? 0;
-  if (!CREDIT_OPEN.includes(order.status) || (balance <= 0 && !order.creditRequestedPaise))
-    return null;
-  const on = order.creditRequestedPaise > 0;
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-5 py-4 sm:px-6">
-      <p className="text-sm">
-        {on
-          ? t('order.creditOn', { amount: formatPaise(order.creditRequestedPaise) })
-          : t('order.creditAvailable', { amount: formatPaise(balance) })}
-      </p>
-      <Button
-        size="sm"
-        variant={on ? 'secondary' : 'primary'}
-        disabled={set.isPending}
-        onClick={() => set.mutate({ orderId: order.id, amountPaise: on ? 0 : balance })}
-      >
-        {on ? t('order.creditOff') : t('order.creditUse')}
-      </Button>
-      <ErrorText error={set.error} />
-    </div>
-  );
-}
-
 export function OrderPage() {
   const { t } = useTranslation();
   const id = useParams().id ?? '';
@@ -663,7 +611,6 @@ export function OrderPage() {
             {t(`fee.${o.fee.status}`)}
           </Badge>
         </div>
-        <UseCredit order={o} />
       </Card>
       {o.packPhotoAt && (
         <Card className="p-5">

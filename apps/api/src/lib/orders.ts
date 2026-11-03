@@ -63,13 +63,6 @@ import {
 } from '../db/schema';
 import { audit } from './audit';
 import { applySubscriptionEvent } from './growth/merchants';
-import {
-  creditOnBill,
-  creditPreview,
-  qualifyReferralOnPacked,
-  releaseHeldCredit,
-  reverseReferralForOrder,
-} from './growth/referrals';
 import { itemImageUrl } from './catalogue';
 import { env } from './env';
 import { HttpError } from './errors';
@@ -144,10 +137,6 @@ export async function transition(
     .returning();
   if (!row) throw new HttpError(409, 'order_changed', 'This order changed. Refresh and try again.');
   await orderEvent(tx, order.id, actorId, type, { from: order.status, to, ...meta });
-  // Credit held at the counter goes back if the order closes without a bill.
-  if (to === 'cancelled' || to === 'rejected' || to === 'expired') {
-    await releaseHeldCredit(tx, order.id);
-  }
   return row;
 }
 
@@ -265,7 +254,6 @@ export async function billFor(db: Db | Tx, order: OrderRow, shop: ShopRow): Prom
     .orderBy(desc(shopLicences.validTo))
     .limit(1);
   const picked = (await linesOf(db, order.id)).filter((l) => l.status === 'picked');
-  const credit = await creditOnBill(db, order.id);
   return {
     billNo: order.billNo,
     issuedAt: (order.completedAt ?? pay.receivedAt ?? new Date()).toISOString(),
@@ -285,8 +273,6 @@ export async function billFor(db: Db | Tx, order: OrderRow, shop: ShopRow): Prom
       totalPaise: l.pickedQty * l.unitPricePaise,
     })),
     totalPaise: order.finalTotalPaise ?? 0,
-    creditPaise: credit,
-    paidPaise: (order.finalTotalPaise ?? 0) - credit,
     payment: {
       method: pay.method,
       reference: pay.method === 'upi' ? (pay.utr ?? pay.reference) : pay.reference,
@@ -313,7 +299,6 @@ export async function customerOrderView(db: Db | Tx, order: OrderRow): Promise<C
       pickupNotes: cluster?.gateNotes ?? null,
     },
     lines: rows.map((r) => lineView(r.line, r.item, r.alt)),
-    creditRequestedPaise: order.creditRequestedPaise,
     estimatedTotalPaise: order.estimatedTotalPaise,
     finalTotalPaise: order.finalTotalPaise,
     packNo: order.packNo,
@@ -359,7 +344,6 @@ export async function staffOrderView(db: Db | Tx, order: OrderRow): Promise<Staf
     stockQty: r.item.stockQty,
   }));
   return {
-    creditPaise: await creditPreview(db, order),
     id: order.id,
     code: formatOrderCode(order.code),
     status: order.status,
@@ -871,7 +855,6 @@ async function applyFeeEventInTx(
     .set(processed ? { status: 'processed', processedAt: now } : { status: 'failed' })
     .where(eq(feeRefunds.id, hit.r.id));
   await orderEvent(tx, hit.p.orderId, null, processed ? 'fee_refunded' : 'fee_refund_failed');
-  if (processed) await reverseReferralForOrder(tx, hit.p.orderId);
   return { outcome: processed ? 'refund_processed' : 'refund_failed', orderId: hit.p.orderId };
 }
 
@@ -1348,9 +1331,6 @@ export async function finishPacking(db: Db, shopId: string, actorId: string, ord
       actorId,
       'packed',
     );
-    // G12: the referee's first packed order with the fee paid rewards the referrer, here,
-    // in the same transaction as the status change.
-    await qualifyReferralOnPacked(tx, packed);
     return issueSticker(tx, packed);
   });
 }

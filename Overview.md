@@ -197,7 +197,7 @@ the customer's order page polls every 10 s until the order closes.
 - **Merchant documents** sit under the Licence tab; admins review them under Admin → Documents.
 - **Languages** en/te/hi, saved on the account (`users.lang`, `PATCH /api/me`); `pnpm i18n-lint`
   keeps copy out of the code.
-- **Growth program** (agents, influencers, wallets, referrals and credit, merchant subscription,
+- **Growth program** (agents paid per merchant straight to their UPI ID, merchant subscription,
   kits): see [docs/GROWTH.md](docs/GROWTH.md).
 - **Deployment**: frontend and backend deploy separately (`deploy-web.yml`, `deploy-api.yml`,
   `deploy-infra.yml`); see [docs/DEPLOY.md](docs/DEPLOY.md).

@@ -45,8 +45,7 @@
     "marshal": "Gate marshal",
     "admin": "Admin",
     "agent_setup": "Agent setting up",
-    "agent": "Agent (gig worker)",
-    "influencer": "Influencer"
+    "agent": "Agent (gig worker)"
   },
   "orderStatus": {
     "fee_pending": "Waiting for the ₹30 fee",
@@ -301,12 +300,7 @@
     "assistanceStatusApproved": "Approved",
     "assistanceStatusRejected": "Declined",
     "assistanceStatusNone": "None",
-    "assistanceSubmittedNotice": "Your request has been submitted to the shop.",
-    "creditAvailable": "You have {{amount}} of credit to use on this bill.",
-    "creditOn": "{{amount}} of credit will come off this bill at the counter.",
-    "creditUse": "Use my credit",
-    "creditOff": "Don't use credit",
-    "paidAmount": "Paid to the shop"
+    "assistanceSubmittedNotice": "Your request has been submitted to the shop."
   },
   "mockPay": {
     "eyebrow": "Test payment provider",
@@ -355,12 +349,8 @@
     "delete": "Delete my data",
     "deleteConfirm": "Yes, delete it",
     "more": "More on Diwali Express",
-    "credit": "My credit and referrals",
     "agentPortal": "Agent portal",
-    "becomeAgent": "Set up shops as an agent",
-    "influencerPage": "Influencer page",
-    "becomeInfluencer": "Join as an influencer",
-    "wallet": "Money wallet"
+    "becomeAgent": "Set up shops as an agent"
   },
   "shopApp": {
     "eyebrow": "Merchant",
@@ -379,7 +369,6 @@
       "payments": "Payments",
       "licence": "Licence",
       "report": "Report",
-      "credits": "Credits",
       "poster": "Shop QR"
     }
   },
@@ -538,8 +527,7 @@
     "changeToReturn": "Change to return",
     "shortBy": "Short by {{amount}}",
     "packBadge": "Pack #{{n}}",
-    "orderCode": "Order",
-    "creditLine": "Platform credit"
+    "orderCode": "Order"
   },
   "prices": {
     "summary_one": "{{count}} product listed · price version {{version}}",
@@ -865,8 +853,8 @@
       "documents": "Documents",
       "agents": "Agents",
       "payouts": "Payouts",
-      "settlements": "Settlements",
-      "feedback": "Feedback"
+      "feedback": "Feedback",
+      "subscriptions": "Subscriptions"
     },
     "listedShops": "Listed shops",
     "pendingLicences_one": "{{count}} licence is waiting to be checked",
@@ -932,23 +920,17 @@
     "startsOn": "Licence starts {{date}} — listed from then",
     "filter": "Filter",
     "agents": "Agents",
-    "influencers": "Influencers",
     "none": "Nothing here.",
     "agentStats": "{{merchants}} merchants, {{live}} live",
     "approve": "Approve",
     "suspend": "Suspend",
     "reason": "Reason",
-    "referred": "{{count}} referred",
-    "payoutsHelp": "Send each transfer from the payout account to the UPI ID on file, then record its UTR here. A failed transfer goes back to the wallet.",
+    "payoutsHelp": "Send each ₹1,000 (less TDS where it applies) from the payout account straight to the agent's UPI ID, then record its UTR here. A failed transfer asks the agent to check their UPI ID.",
     "payTo": "Send {{amount}} to {{upi}}",
     "utr": "UTR",
     "markSent": "Mark sent",
     "markFailed": "Mark failed",
-    "agentPayouts": "Agent payouts",
     "reverse": "Reverse",
-    "settlements": "Credit settlements to shops",
-    "settlementsHelp": "Pay each shop the platform credit its customers used, to the shop's UPI ID, then record the UTR.",
-    "noUpi": "no UPI ID on file",
     "markPaid": "Mark paid",
     "subscriptions": "Merchant subscriptions",
     "bankRef": "Bank reference",
@@ -956,7 +938,9 @@
       "online": "Online",
       "offline": "Bank transfer"
     },
-    "feedbackSummary": "{{yes}} of {{total}} agents said it really helped"
+    "feedbackSummary": "{{yes}} of {{total}} agents said it really helped",
+    "retry": "Try again",
+    "blockedPan": "Waiting for the agent's PAN"
   },
   "members": {
     "title": "Team and merchant access",
@@ -1108,14 +1092,10 @@
     "not_agent": "Register as an agent first.",
     "agent_not_active": "Your agent account is waiting for approval.",
     "already_agent": "You are already registered as an agent.",
-    "already_influencer": "You are already registered as an influencer.",
-    "not_influencer": "Register as an influencer first.",
-    "upi_in_use": "This UPI ID is already linked to another wallet.",
+    "upi_in_use": "This UPI ID belongs to another agent.",
     "code_not_found": "That code was not found.",
     "own_code": "You cannot use your own code.",
     "already_ordered": "Codes work only before your first order.",
-    "already_referred": "You already used a referral code.",
-    "invalid_code": "That is not a referral code.",
     "owner_exists": "This owner already has a shop here or is with another agent.",
     "merchant_not_found": "That merchant was not found.",
     "setup_incomplete": "Some setup steps are still missing.",
@@ -1124,18 +1104,11 @@
     "link_expired": "This link has expired. Ask the agent for a new one.",
     "merchant_changed": "This merchant changed. Reload and try again.",
     "gstin_invalid": "That GSTIN is not valid.",
-    "no_wallet": "You have no wallet yet.",
-    "withdraw_amount": "Enter an amount.",
-    "withdraw_balance": "That is more than your balance.",
-    "withdraw_daily_cap": "Withdrawals are up to ₹2,000 a day in total.",
-    "withdraw_frozen": "Withdrawals are paused while your wallet is reviewed.",
-    "withdraw_pan_required": "Add your PAN to keep withdrawing this year.",
-    "credit_locked": "The counter has already applied credit to this bill.",
-    "settlement_today": "You can ask once a day. Try again tomorrow.",
     "nothing_owed": "Nothing is owed to you right now.",
     "subscription_not_found": "That subscription was not found.",
     "payout_not_found": "That payout was not found.",
-    "code_unavailable": "Could not create a code just now. Please try again."
+    "code_unavailable": "Could not create a code just now. Please try again.",
+    "pan_required": "The agent must add their PAN before this payout."
   },
   "notFound": {
     "title": "Page not found",
@@ -1214,13 +1187,11 @@
     "pending": "Pending",
     "active": "Active",
     "suspended": "Suspended",
-    "requested": "Requested",
     "sent": "Sent",
     "failed": "Failed",
     "paid": "Paid",
     "refunded": "Refunded",
     "cancelled": "Cancelled",
-    "credited": "Credited",
     "reversed": "Reversed"
   },
   "agent": {
@@ -1228,10 +1199,8 @@
     "title": "Agent portal",
     "subtitle": "Set up shops with their owners. You are paid ₹1,000 once for each shop that goes live.",
     "registerTitle": "Register as an agent",
-    "registerBody": "Phone, name and UPI ID are all we need to start. The team approves new agents, usually within a day.",
+    "registerBody": "Phone, name and the UPI ID your payouts go to are all we need to start. The team approves new agents, usually within a day.",
     "name": "Your name",
-    "recruitCode": "Influencer code (optional)",
-    "recruitHint": "If an influencer sent you here, enter their DXI- code.",
     "register": "Register",
     "yourCode": "Your agent code",
     "status": {
@@ -1239,8 +1208,7 @@
       "active": "Active",
       "suspended": "Suspended"
     },
-    "howPaid": "₹1,000 is added to your wallet when a shop you set up is paid and its licence is checked. Withdraw up to ₹2,000 a day.",
-    "openWallet": "Open wallet",
+    "howPaid": "₹1,000 is sent to your own UPI ID for each shop you set up, once it is paid and its licence is checked. PAN is needed from ₹18,000 earned in a year; 2% TDS applies above ₹20,000.",
     "rules": "Agent rules",
     "pendingNote": "You can add merchants once your account is approved.",
     "suspendedNote": "Your account is suspended. Contact the team.",
@@ -1260,7 +1228,7 @@
       "live": "Live",
       "closed": "Closed"
     },
-    "paid": "₹1,000 added",
+    "paid": "₹1,000 paid",
     "ownerNote": "Owner's note: {{note}}",
     "consentHelp": "Ask the owner for the 6-digit code they received, or send them the approval link.",
     "consentCode": "Owner's code",
@@ -1295,113 +1263,46 @@
     "noMerchants": "No merchants yet",
     "noMerchantsBody": "Add your first merchant with the owner at the shop.",
     "notifications": "Updates",
-    "backToPortal": "Back to agent portal"
+    "backToPortal": "Back to agent portal",
+    "payoutPending": "₹1,000 on its way",
+    "payouts": {
+      "title": "Your payouts",
+      "upiId": "UPI ID for payouts",
+      "upiHint": "Your own UPI ID, for example name@okhdfcbank. Payouts go only here.",
+      "upiTo": "Payouts go to {{upi}}",
+      "changeUpi": "Change UPI ID",
+      "newUpi": "New UPI ID",
+      "saveUpi": "Save UPI ID",
+      "earned": "Earned in {{fy}}",
+      "paid": "Paid to you",
+      "pending": "Being sent",
+      "panPrompt": "You are close to ₹20,000 this year. Add your PAN now so payouts carry on.",
+      "panRequired": "Payouts wait until you add your PAN. 2% TDS applies above ₹20,000 earned in the year.",
+      "pan": "PAN",
+      "savePan": "Save PAN",
+      "tds": "TDS {{amount}}",
+      "none": "No payouts yet. Each shop you set up that goes live is ₹1,000 to your UPI ID.",
+      "blockedPan": "Waiting for your PAN",
+      "status": {
+        "pending": "Being sent",
+        "sent": "Paid",
+        "failed": "Transfer failed — check your UPI ID",
+        "reversed": "Reversed"
+      }
+    }
   },
   "notice": {
     "merchant": {
       "consented": "Owner consent received for {{shop}}. Continue the setup.",
       "changes": "The owner asked for changes on {{shop}}: {{note}}",
       "approved": "{{shop}} approved your setup and paid.",
-      "live": "{{shop}} is live. ₹1,000 added to your wallet.",
+      "live": "{{shop}} is live. ₹1,000 is on its way to your UPI ID.",
       "closed": "{{shop}} was not approved: {{note}}",
       "reminder": "{{shop}} has not approved yet ({{hours}} hours). Send the owner the link again."
     },
-    "wallet": {
-      "sent": "Your transfer was sent. UTR {{utr}}",
-      "failed": "A transfer failed and the amount is back in your wallet."
-    },
-    "settlement": {
-      "paid": "The platform paid your credit settlement. UTR {{utr}}"
-    }
-  },
-  "influencer": {
-    "eyebrow": "Influencers",
-    "title": "Influencer page",
-    "subtitle": "Share your code. ₹10 goes to your wallet for each follower whose first order is paid and packed.",
-    "registerTitle": "Join as an influencer",
-    "registerBody": "Tell us where you post and your UPI ID. The team approves new influencers.",
-    "handle": "Your handle",
-    "platform": "Where you post",
-    "platforms": {
-      "instagram": "Instagram",
-      "youtube": "YouTube",
-      "facebook": "Facebook",
-      "whatsapp": "WhatsApp",
-      "other": "Other"
-    },
-    "register": "Register",
-    "yourCode": "Your code",
-    "pendingNote": "Your code starts working once the team approves you.",
-    "shareCustomers": "For your followers",
-    "shareText": "Order from licensed shops near you and collect at the counter. Use my link:",
-    "shareAgents": "For people who want to set up shops as agents",
-    "agentText": "Set up shops on Diwali Express as an agent. Register here:",
-    "disclose": "Mark every post as paid promotion (#ad or #collab).",
-    "referred": "Followers referred",
-    "rewarded": "First orders packed",
-    "agents": "Agents you brought",
-    "visits": "Link visits"
-  },
-  "wallet": {
-    "eyebrow": "Wallet",
-    "title": "Money wallet",
-    "subtitle": "Withdrawals go to {{upi}}.",
-    "upiId": "UPI ID",
-    "upiHint": "Your own UPI ID, for example name@okhdfcbank. Payouts go only here.",
-    "balance": "Balance",
-    "todayLeft": "You can withdraw today",
-    "fyEarned": "Earned in {{fy}}",
-    "frozen": "Withdrawals are paused while the team reviews your wallet.",
-    "panPrompt": "You are close to ₹20,000 this year. Add your PAN now so withdrawals carry on.",
-    "panRequired": "Add your PAN to keep withdrawing this year. 2% TDS applies above ₹20,000.",
-    "pan": "PAN",
-    "savePan": "Save PAN",
-    "withdraw": "Withdraw",
-    "withdrawHelp": "Any number of times a day, up to ₹2,000 in total. Usually arrives within a working day.",
-    "amount": "Amount",
-    "withdrawNow": "Withdraw",
-    "transfers": "Transfers",
-    "noTransfers": "No transfers yet.",
-    "tds": "TDS {{amount}}",
-    "history": "History",
-    "status": {
-      "requested": "Requested",
-      "sent": "Sent",
-      "failed": "Failed"
-    },
-    "reason": {
-      "onboarding": "Shop set up",
-      "referral_reward": "Referral",
-      "recruit_reward": "Agent you brought",
-      "withdrawal": "Withdrawal",
-      "return": "Transfer returned",
-      "reversal": "Reversed"
-    }
-  },
-  "credit": {
-    "eyebrow": "My credit",
-    "title": "Credit and referrals",
-    "subtitle": "Credit comes off your bill at a listed shop's counter. It is not cash and cannot be transferred.",
-    "balance": "Your credit",
-    "expires": "Use by {{date}}",
-    "invited": "Friends who used your code",
-    "rewarded": "Friends whose first order was packed",
-    "shareTitle": "Share your code",
-    "shareBody": "You get ₹10 of credit when a friend's first order is paid and packed.",
-    "shareText": "Order from licensed shops near you and collect at the counter:",
-    "rules": "One referral per friend, only before their first order. If their ₹30 fee is refunded, the ₹10 is taken back.",
-    "haveCode": "Did someone share a code with you?",
-    "codeLabel": "Referral code",
-    "useCode": "Use code",
-    "codeSaved": "Saved. Thank you!",
-    "history": "History",
-    "noHistory": "No credit yet.",
-    "reason": {
-      "referral": "Referral",
-      "reversal": "Referral reversed",
-      "hold": "Used on a bill",
-      "release": "Returned",
-      "expiry": "Expired"
+    "payout": {
+      "sent": "Your payout was sent. UTR {{utr}}",
+      "failed": "A payout transfer failed. Check the UPI ID on your agent page."
     }
   },
   "kits": {
@@ -1418,22 +1319,6 @@
       "family": "Family kit",
       "gift": "Gift kit",
       "special": "Special kit"
-    }
-  },
-  "settle": {
-    "explain": "When customers use platform credit, it comes off their bill and the platform pays it to you: weekly on Monday, or now when you ask.",
-    "owed": "Owed to you",
-    "request": "Pay me now",
-    "requestHelp": "Once a day, to the UPI ID in your counter payment settings.",
-    "history": "Settlements",
-    "none": "Nothing yet.",
-    "week": "week {{from}} – {{to}}",
-    "requested": "asked {{date}}",
-    "bills_one": "{{count}} bill",
-    "bills_other": "{{count}} bills",
-    "status": {
-      "pending": "Being paid",
-      "paid": "Paid"
     }
   },
   "poster": {
@@ -1481,9 +1366,7 @@
     "title": {
       "customer": "Customer terms",
       "merchant": "Merchant terms",
-      "agent": "Agent terms",
-      "influencer": "Influencer terms",
-      "referral": "Referral rules"
+      "agent": "Agent terms"
     },
     "points": {
       "customer": [
@@ -1501,20 +1384,8 @@
         "You set up shops only with the owner's consent (their code or their tap on the link).",
         "You are paid ₹1,000 once for each shop that is paid and goes live. Nothing for shops the owner sets up alone.",
         "You never collect money from merchants, never see customer data, and never edit a shop after approval.",
-        "Withdraw up to ₹2,000 a day to your own UPI ID. PAN is needed from ₹18,000 earned in a year; 2% TDS applies above ₹20,000.",
+        "Each ₹1,000 is sent to your own UPI ID. PAN is needed from ₹18,000 earned in a year; 2% TDS applies above ₹20,000.",
         "A refunded subscription or a failed licence within 30 days reverses the ₹1,000. One device signed in at a time."
-      ],
-      "influencer": [
-        "You get ₹10 for each follower whose first order has its ₹30 fee paid and is packed.",
-        "You get ₹10 once when an agent you brought sets up their first live shop.",
-        "Mark every post as paid promotion (#ad or #collab). Make no promises about prices or availability.",
-        "Withdraw up to ₹2,000 a day to your own UPI ID. PAN and TDS rules are the same as for agents."
-      ],
-      "referral": [
-        "₹10 of credit for each friend whose first order is paid and packed. No limit.",
-        "Credit comes off a bill at a listed shop's counter. It is not cash, not transferable and not for the ₹30 fee.",
-        "One referrer per person, only before their first order. A refunded fee takes the ₹10 back.",
-        "Credit can be used until the end of the season."
       ]
     }
   },

@@ -8,7 +8,7 @@ import { MembershipList } from '../components/MembershipList';
 import { Badge, Button, ButtonLink, Card, PageTitle } from '../components/ui';
 import { useProfiles } from '../lib/growth';
 
-/** Credit and referrals for everyone; agent, influencer and wallet when the person has them. */
+/** The agent portal: register as a gig worker, or open it when already registered. */
 function GrowthLinks() {
   const { t } = useTranslation();
   const p = useProfiles();
@@ -16,20 +16,9 @@ function GrowthLinks() {
     <Card className="mt-6 space-y-3 p-6">
       <h2 className="text-lg font-bold">{t('account.more')}</h2>
       <div className="flex flex-wrap gap-2">
-        <ButtonLink to="/credit" variant="secondary">
-          {t('account.credit')}
-        </ButtonLink>
         <ButtonLink to="/agent" variant="secondary">
           {p.data?.agent ? t('account.agentPortal') : t('account.becomeAgent')}
         </ButtonLink>
-        <ButtonLink to="/influencer" variant="secondary">
-          {p.data?.influencer ? t('account.influencerPage') : t('account.becomeInfluencer')}
-        </ButtonLink>
-        {p.data?.wallet && (
-          <ButtonLink to="/wallet" variant="secondary">
-            {t('account.wallet')}
-          </ButtonLink>
-        )}
       </div>
     </Card>
   );

@@ -4,7 +4,7 @@ import type { HttpRequest, HttpResponseInit } from '@azure/functions';
 import { and, asc, eq, inArray, isNull, like } from 'drizzle-orm';
 import { demoLoginSchema, type DemoAccount, type DemoInfo } from '@pataka/shared';
 import { getDb } from '../db/client';
-import { agents, influencers, users } from '../db/schema';
+import { agents, users } from '../db/schema';
 import { audit } from '../lib/audit';
 import { sessionCookie, signSession } from '../lib/auth';
 import { env } from '../lib/env';
@@ -38,28 +38,17 @@ export async function demoInfoHandler(): Promise<HttpResponseInit> {
     rows.map((r) => r.id),
   );
   const ids = rows.map((r) => r.id);
-  const [agentRows, influencerRows] = ids.length
-    ? await Promise.all([
-        db
-          .select({ userId: agents.userId, code: agents.code })
-          .from(agents)
-          .where(inArray(agents.userId, ids)),
-        db
-          .select({ userId: influencers.userId, code: influencers.code })
-          .from(influencers)
-          .where(inArray(influencers.userId, ids)),
-      ])
-    : [[], []];
+  const agentRows = ids.length
+    ? await db
+        .select({ userId: agents.userId, code: agents.code })
+        .from(agents)
+        .where(inArray(agents.userId, ids))
+    : [];
   const agentCode = new Map(agentRows.map((a) => [a.userId, a.code]));
-  const influencerCode = new Map(influencerRows.map((i) => [i.userId, i.code]));
-  const PROFILE_ORDER: DemoAccount['profile'][] = [null, 'agent', 'influencer'];
+  const PROFILE_ORDER: DemoAccount['profile'][] = [null, 'agent'];
   const accounts: DemoAccount[] = rows
     .map((u) => {
-      const profile: DemoAccount['profile'] = influencerCode.has(u.id)
-        ? 'influencer'
-        : agentCode.has(u.id)
-          ? 'agent'
-          : null;
+      const profile: DemoAccount['profile'] = agentCode.has(u.id) ? 'agent' : null;
       return {
         phone: u.phoneE164,
         displayName: u.displayName,
@@ -67,7 +56,7 @@ export async function demoInfoHandler(): Promise<HttpResponseInit> {
         profile,
         context:
           (profile
-            ? `${u.displayName ?? ''} · ${influencerCode.get(u.id) ?? agentCode.get(u.id)}`
+            ? `${u.displayName ?? ''} · ${agentCode.get(u.id)}`
             : memberships
                 .get(u.id)
                 ?.map((m) => m.name)

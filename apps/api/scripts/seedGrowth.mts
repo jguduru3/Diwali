@@ -1,20 +1,17 @@
 // Growth program demo data (dev/demo only), built through the same code paths as the app so
-// wallets, payouts, referrals and credit follow the real rules (G12, G13). Safe to run again: each part
+// onboarding and agent payouts follow the real rules (G12, G13). Safe to run again: each part
 // skips itself when it is already there.
 import { and, eq } from 'drizzle-orm';
 import type { Db } from '../src/db/client';
 import {
+  agentPayouts,
   agents,
   categories,
-  influencers,
   items,
   merchantSubscriptions,
-  orders,
-  referrals,
   shopLicences,
   shops,
   users,
-  withdrawals,
 } from '../src/db/schema';
 import {
   approveReview,
@@ -25,20 +22,13 @@ import {
   submitMerchant,
   markOfflinePaid,
 } from '../src/lib/growth/merchants';
-import {
-  claimReferral,
-  ensureReferralCode,
-  qualifyReferralOnPacked,
-} from '../src/lib/growth/referrals';
-import { markWithdrawalSent, registerInfluencer, withdraw } from '../src/lib/growth/wallet';
+import { markPayoutSent } from '../src/lib/growth/payouts';
 
 type User = typeof users.$inferSelect;
 
 export interface GrowthSeedHelpers {
   phone: (n: number) => string;
   upsertCustomer: (n: number, name: string) => Promise<User>;
-  /** creates (or finds) a demo order with the ₹30 fee captured */
-  demoOrder: (n: number, code: string, status: 'placed' | 'packed') => Promise<void>;
   adminId: string;
 }
 
@@ -58,21 +48,6 @@ const grocery: [string, string, string, string, number][] = [
 export async function seedGrowth(db: Db, h: GrowthSeedHelpers) {
   const agentUser = await h.upsertCustomer(61, 'Ramesh Kumar');
 
-  // Influencer: approved, with visits to the shared link.
-  const infUser = await h.upsertCustomer(71, 'Divya Rao');
-  if (!(await db.select().from(influencers).where(eq(influencers.userId, infUser.id))).length)
-    await registerInfluencer(db, infUser, {
-      handle: '@hyd_festive_finds',
-      platform: 'instagram',
-      upiId: 'demo.influencer@okicici',
-      acceptTerms: true,
-    });
-  await db
-    .update(influencers)
-    .set({ status: 'active', approvedBy: h.adminId, approvedAt: new Date(), linkVisits: 128 })
-    .where(eq(influencers.userId, infUser.id));
-  const [inf] = await db.select().from(influencers).where(eq(influencers.userId, infUser.id));
-
   // A new agent waiting for the admin's approval (Admin → Agents → Pending).
   const pendingUser = await h.upsertCustomer(62, 'Sravani Reddy');
   if (!(await db.select().from(agents).where(eq(agents.userId, pendingUser.id))).length)
@@ -82,13 +57,12 @@ export async function seedGrowth(db: Db, h: GrowthSeedHelpers) {
       acceptTerms: true,
     });
 
-  // Agent (gig worker) recruited by the influencer, approved by the admin.
+  // Agent (gig worker), approved by the admin.
   const [existing] = await db.select().from(agents).where(eq(agents.userId, agentUser.id));
   if (!existing)
     await registerAgent(db, agentUser, {
       name: 'Ramesh Kumar',
       upiId: 'demo.agent@okhdfc',
-      recruitCode: inf!.code,
       acceptTerms: true,
     });
   await db
@@ -158,8 +132,22 @@ export async function seedGrowth(db: Db, h: GrowthSeedHelpers) {
       return { id: draft.id, review: submitted.ownerLink!.split('/m/review/')[1]! };
     }
 
-    // 1. Live: the owner approved and paid by bank transfer, licence verified → ₹1,000 to the
-    //    agent and ₹10 to the influencer who recruited them.
+    /** The owner approves and pays by bank transfer; with the licence verified it goes live. */
+    async function goLive(token: string, shopId: string, reference: string) {
+      await approveReview(db, token, 'offline');
+      const [sub] = await db
+        .select()
+        .from(merchantSubscriptions)
+        .where(
+          and(
+            eq(merchantSubscriptions.shopId, shopId),
+            eq(merchantSubscriptions.status, 'pending'),
+          ),
+        );
+      await markOfflinePaid(db, h.adminId, sub!.id, reference);
+    }
+
+    // 1. Live and paid out: the ₹1,000 went to the agent's UPI ID (UTR recorded).
     const live = await onboard(
       'Sri Venkateswara Kirana',
       'Kukatpally',
@@ -167,14 +155,19 @@ export async function seedGrowth(db: Db, h: GrowthSeedHelpers) {
       [17.4948, 78.3996],
       'verified',
     );
-    await approveReview(db, live.review, 'offline');
-    const [sub] = await db
-      .select()
-      .from(merchantSubscriptions)
-      .where(
-        and(eq(merchantSubscriptions.shopId, live.id), eq(merchantSubscriptions.status, 'pending')),
-      );
-    await markOfflinePaid(db, h.adminId, sub!.id, 'NEFT DEMO000001');
+    await goLive(live.review, live.id, 'NEFT DEMO000001');
+    const [paid] = await db.select().from(agentPayouts).where(eq(agentPayouts.shopId, live.id));
+    await markPayoutSent(db, h.adminId, paid!.id, 'UTR612345678901');
+
+    // 1b. Live, payout waiting for the admin to send it (Admin → Payouts).
+    const second = await onboard(
+      'Annapurna Provisions',
+      'Nizampet',
+      [68, 'Annapurna K'],
+      [17.5155, 78.3852],
+      'verified',
+    );
+    await goLive(second.review, second.id, 'NEFT DEMO000002');
 
     // 2. Waiting for the owner to approve the review link.
     const review = await onboard(
@@ -193,11 +186,6 @@ export async function seedGrowth(db: Db, h: GrowthSeedHelpers) {
       ownerPhone: h.phone(67),
     });
 
-    // Agent wallet: one withdrawal sent (UTR recorded), one waiting for the admin.
-    await withdraw(db, agentUser.id, 50000, 'seed-withdrawal-1');
-    const [w1] = await db.select().from(withdrawals).where(eq(withdrawals.amountPaise, 50000));
-    await markWithdrawalSent(db, h.adminId, w1!.id, 'UTR612345678901');
-    await withdraw(db, agentUser.id, 20000, 'seed-withdrawal-2');
     return review.review;
   }
 
@@ -207,32 +195,5 @@ export async function seedGrowth(db: Db, h: GrowthSeedHelpers) {
     .where(eq(shops.onboardedByAgentId, agent!.id));
   const reviewToken = hasShops ? null : await seedMerchants();
 
-  // Customer referrals: Ravi (+91 90000 00099) shared his code with Anil and Meena;
-  // Anil's first order is packed (₹10 credit to Ravi), Meena has not ordered yet.
-  // Kiran came through the influencer's link; his first order is packed (₹10 to her wallet).
-  const raviCode = await ensureReferralCode(
-    db,
-    (
-      await db
-        .select()
-        .from(users)
-        .where(eq(users.phoneE164, h.phone(99)))
-    )[0]!.id,
-  );
-  const referred: [number, string, string, string | null][] = [
-    [93, 'Anil Varma', raviCode, 'DEM093'],
-    [94, 'Meena Iyer', raviCode, null],
-    [95, 'Kiran Goud', inf!.code, 'DEM095'],
-  ];
-  for (const [n, name, code, orderCode] of referred) {
-    const u = await h.upsertCustomer(n, name);
-    const [claimed] = await db.select().from(referrals).where(eq(referrals.refereeUserId, u.id));
-    if (!claimed) await claimReferral(db, u.id, code);
-    if (!orderCode) continue;
-    await h.demoOrder(n, orderCode, 'packed');
-    const [o] = await db.select().from(orders).where(eq(orders.code, orderCode));
-    await db.transaction((tx) => qualifyReferralOnPacked(tx, o!));
-  }
-
-  return { agentCode: agent!.code, influencerCode: inf!.code, reviewToken };
+  return { agentCode: agent!.code, reviewToken };
 }

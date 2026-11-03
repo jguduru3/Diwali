@@ -364,10 +364,6 @@ export const billSchema = z.object({
     }),
   ),
   totalPaise: z.number(),
-  /** platform credit the customer used; the merchant is paid it in settlement (G3) */
-  creditPaise: z.number().default(0),
-  /** what the customer paid the merchant: total − credit */
-  paidPaise: z.number().optional(),
   payment: z.object({ method: counterMethodSchema, reference: z.string().nullable() }),
 });
 export type Bill = z.infer<typeof billSchema>;
@@ -376,8 +372,6 @@ export const customerOrderSchema = z.object({
   id: z.string().uuid(),
   code: z.string(),
   status: orderStatusSchema,
-  /** credit the customer asked to use at pickup (the counter applies at most their balance) */
-  creditRequestedPaise: z.number().default(0),
   shop: z.object({
     shortCode: z.string(),
     name: z.string(),
@@ -471,8 +465,6 @@ export const staffOrderSchema = z.object({
   code: z.string(),
   status: orderStatusSchema,
   customer: z.string(),
-  /** platform credit coming off this bill (held at payment); the cashier collects the rest */
-  creditPaise: z.number().default(0),
   lines: z.array(staffOrderLineSchema),
   estimatedTotalPaise: z.number(),
   finalTotalPaise: z.number().nullable(),

@@ -1,16 +1,15 @@
 // Agent-led merchant onboarding and the merchant subscription.
 // draft → consented (owner's OTP or Approve link) → setup (agent captures the shop) → review
 // (owner opens the link, approves and pays ₹1,999 + GST) → approved (owner gets the shop) →
-// live (admin verified the licence). The agent's ₹1,000 is credited once, at live (G12, G13).
+// live (admin verified the licence). The agent's ₹1,000 payout is created once, at live, and
+// paid straight to their UPI ID (payouts.ts; G12, G13).
 import { randomBytes } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { and, asc, count, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import {
-  AGENT_PAYOUT_PAISE,
   canOnboard,
   generateCode,
   isValidGstin,
-  RECRUIT_REWARD_PAISE,
   SUBMIT_MIN_PRODUCTS,
   SUBSCRIPTION_GST_PAISE,
   SUBSCRIPTION_PAISE,
@@ -29,7 +28,6 @@ import {
   agentFeedback,
   agentPayouts,
   agents,
-  influencers,
   items,
   merchantSubscriptions,
   ownerLinks,
@@ -48,17 +46,16 @@ import { HttpError } from '../errors';
 import { generateOtp, otpSender } from '../otp';
 import { activeProvider, type ProviderEvent } from '../payments';
 import {
-  ensureWallet,
   maskPhone,
   notify,
+  protectUpi,
   sha256,
   shopEvent,
   type DbOrTx,
   type Tx,
   uniqueCode,
-  walletEntry,
-  walletOf,
 } from './common';
+import { agentPayoutSummary, createPayout } from './payouts';
 
 type AgentRow = typeof agents.$inferSelect;
 type ShopRow = typeof shops.$inferSelect;
@@ -89,17 +86,12 @@ export async function registerAgent(db: Db, user: SessionUser, input: AgentRegis
   return db.transaction(async (tx) => {
     if (await agentOf(tx, user.id))
       throw new HttpError(409, 'already_agent', 'You are already registered');
-    let recruitedBy: string | null = null;
-    if (input.recruitCode) {
-      const [inf] = await tx
-        .select()
-        .from(influencers)
-        .where(and(eq(influencers.code, input.recruitCode), eq(influencers.status, 'active')));
-      if (!inf) throw new HttpError(404, 'code_not_found', 'That influencer code was not found');
-      // An influencer working as an agent gets no recruit bonus on themselves (G12).
-      if (inf.userId !== user.id) recruitedBy = inf.id;
-    }
-    await ensureWallet(tx, user.id, input.upiId);
+    const upi = protectUpi(input.upiId);
+    const [clash] = await tx
+      .select({ id: agents.id })
+      .from(agents)
+      .where(eq(agents.upiHash, upi.upiHash));
+    if (clash) throw new HttpError(409, 'upi_in_use', 'This UPI ID belongs to another agent');
     const code = await uniqueCode(
       tx,
       'DXA',
@@ -111,7 +103,7 @@ export async function registerAgent(db: Db, user: SessionUser, input: AgentRegis
         userId: user.id,
         code,
         name: input.name,
-        recruitedByInfluencerId: recruitedBy,
+        ...upi,
         agreementVersion: TERMS_VERSIONS.agent,
         agreementAcceptedAt: new Date(),
       })
@@ -246,6 +238,7 @@ export async function agentMe(db: Db, agent: AgentRow): Promise<AgentMe> {
     name: agent.name,
     status: agent.status,
     merchants: await Promise.all(rows.map((s) => draftView(db, agent, s))),
+    ...(await agentPayoutSummary(db, agent)),
   };
 }
 
@@ -742,9 +735,9 @@ export async function promoteIfReady(tx: Tx, shopId: string) {
 }
 
 /**
- * ₹1,000 once per shop, only when an agent set it up with the owner's consent recorded from the
- * agent and submitted it themselves, the subscription is paid, and the agent is not a member of
- * the shop. Self-onboarded shops pay no one (G12).
+ * ₹1,000 once per shop, only when an agent set it up with the owner's consent recorded and
+ * submitted it themselves, the subscription is paid, and the agent is not a member of the shop.
+ * Self-onboarded shops pay no one (G12).
  */
 async function creditAgentPayout(tx: Tx, shop: ShopRow) {
   if (!shop.onboardedByAgentId) return;
@@ -764,66 +757,7 @@ async function creditAgentPayout(tx: Tx, shop: ShopRow) {
     .from(shopMembers)
     .where(and(eq(shopMembers.shopId, shop.id), eq(shopMembers.userId, agent.userId)));
   if (member) return; // an agent onboarding their own shop earns nothing for it
-  const wallet = await walletOf(tx, agent.userId);
-  if (!wallet) return;
-  const [payout] = await tx
-    .insert(agentPayouts)
-    .values({ agentId: agent.id, shopId: shop.id, amountPaise: AGENT_PAYOUT_PAISE })
-    .onConflictDoNothing()
-    .returning();
-  if (!payout) return;
-  await walletEntry(tx, wallet.id, 'onboarding', payout.id, AGENT_PAYOUT_PAISE);
-  await notify(tx, agent.userId, 'merchant.live', {
-    shop: shop.name,
-    amountPaise: AGENT_PAYOUT_PAISE,
-  });
-  await audit(tx, {
-    actorUserId: null,
-    action: 'payout.credited',
-    entity: 'agent_payout',
-    entityId: payout.id,
-  });
-  // The influencer who brought this agent: ₹10 once, on the agent's first live merchant.
-  if (agent.recruitedByInfluencerId) {
-    const [inf] = await tx
-      .select()
-      .from(influencers)
-      .where(eq(influencers.id, agent.recruitedByInfluencerId));
-    const infWallet = inf && inf.status === 'active' ? await walletOf(tx, inf.userId) : null;
-    if (infWallet)
-      await walletEntry(tx, infWallet.id, 'recruit_reward', agent.id, RECRUIT_REWARD_PAISE);
-  }
-}
-
-export async function reversePayout(db: Db, adminId: string, payoutId: string, reason: string) {
-  await db.transaction(async (tx) => {
-    const [p] = await tx
-      .select()
-      .from(agentPayouts)
-      .where(eq(agentPayouts.id, payoutId))
-      .for('update');
-    if (!p) throw new HttpError(404, 'payout_not_found', 'No such payout');
-    if (p.status === 'reversed') return;
-    const [agent] = await tx.select().from(agents).where(eq(agents.id, p.agentId));
-    const wallet = await walletOf(tx, agent!.userId);
-    await tx
-      .update(agentPayouts)
-      .set({ status: 'reversed', reversedAt: new Date() })
-      .where(eq(agentPayouts.id, p.id));
-    // The balance may go negative until later earnings cover it.
-    if (wallet) await walletEntry(tx, wallet.id, 'reversal', `payout:${p.id}`, -p.amountPaise);
-    await tx
-      .update(agents)
-      .set({ status: 'suspended', suspendedReason: reason })
-      .where(eq(agents.id, p.agentId));
-    await audit(tx, {
-      actorUserId: adminId,
-      action: 'payout.reversed',
-      entity: 'agent_payout',
-      entityId: p.id,
-      meta: { reason },
-    });
-  });
+  await createPayout(tx, agent, shop);
 }
 
 export async function giveFeedback(

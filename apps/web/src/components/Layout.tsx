@@ -3,7 +3,6 @@ import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { canAccessArea, type Area } from '@pataka/shared';
 import { useAccountLanguage, useMe } from '../auth/useAuth';
-import { useClaimPendingReferral } from '../lib/referral';
 import { Brand } from './Brand';
 import { DemoRibbon, DemoSwitcher } from './DemoSwitcher';
 import { LanguageMenu } from './LanguageMenu';
@@ -27,7 +26,6 @@ export function Layout() {
   const { t } = useTranslation();
   const { data: me } = useMe();
   useAccountLanguage();
-  useClaimPendingReferral(!!me);
   const { pathname } = useLocation();
   const visible = areaLinks.filter((l) => canAccessArea(me?.role, l.area));
 

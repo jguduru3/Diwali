@@ -1,46 +1,40 @@
-// Growth program endpoints: agents, influencers, wallets, referrals and credit, the owner's
-// consent and review links, kits, terms, notifications, settlements and their admin screens.
+// Growth program endpoints: agents (gig workers) and their payouts, the owner's consent and
+// review links, kits, terms, notifications and their admin screens.
 import type { HttpRequest, HttpResponseInit } from '@azure/functions';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import {
   agentFeedbackSchema,
   agentRegisterSchema,
-  claimReferralSchema,
-  codeSchema,
+  agentUpiSchema,
   consentCodeSchema,
   growthReasonSchema,
-  influencerRegisterSchema,
   KIT_TYPES,
   merchantSetupSchema,
   newMerchantSchema,
   offlinePaidSchema,
-  orderCreditSchema,
   panSetSchema,
   reviewApproveSchema,
   reviewNoteSchema,
   TERMS_VERSIONS,
   termsAcceptSchema,
   utrSchema,
-  withdrawSchema,
 } from '@pataka/shared';
 import { getDb } from '../db/client';
 import {
   agentFeedback,
-  agentPayouts,
   agents,
-  influencers,
   merchantSubscriptions,
   notifications,
   shops,
   termsAcceptances,
   users,
 } from '../db/schema';
-import { requireShop, requireUuidParam } from '../lib/access';
+import { requireUuidParam } from '../lib/access';
 import { audit } from '../lib/audit';
 import { requireRole, requireUser } from '../lib/auth';
 import { HttpError } from '../lib/errors';
-import { maskPhone, walletOf } from '../lib/growth/common';
+import { maskPhone } from '../lib/growth/common';
 import { kitOffers, kitTypes } from '../lib/growth/kits';
 import {
   agentMe,
@@ -54,71 +48,33 @@ import {
   registerAgent,
   requireActiveAgent,
   resendConsent,
-  reversePayout,
   reviewDecision,
   reviewPage,
   saveSetup,
   submitMerchant,
 } from '../lib/growth/merchants';
-import { claimReferral, creditView, requestOrderCredit } from '../lib/growth/referrals';
 import {
-  markSettlementPaid,
-  requestSettlement,
-  settlementViews,
-  shopSettlements,
-} from '../lib/growth/settlements';
-import {
-  adminWithdrawals,
-  influencerMe,
-  influencerOf,
-  recordLinkVisit,
-  markWithdrawalFailed,
-  markWithdrawalSent,
-  registerInfluencer,
-  setFrozen,
-  setPan,
-  walletView,
-  withdraw,
-} from '../lib/growth/wallet';
+  adminPayouts,
+  markPayoutFailed,
+  markPayoutSent,
+  retryPayout,
+  reversePayout,
+  setAgentPan,
+  setAgentUpi,
+} from '../lib/growth/payouts';
 import { clientIp, http, json, parseBody } from '../lib/http';
 import { rateLimit } from '../lib/rateLimit';
 
 const db = () => getDb();
 const ok = json;
 
-// ---- Me: profiles, credit, referrals, terms, notifications ----
+// ---- Me: profiles, terms, notifications ----
 
 /** GET /api/me/profiles — which growth roles this person has. */
 export async function profilesHandler(req: HttpRequest): Promise<HttpResponseInit> {
   const user = await requireUser(db(), req);
-  const [a, i, w] = await Promise.all([
-    agentOf(db(), user.id),
-    influencerOf(db(), user.id),
-    walletOf(db(), user.id),
-  ]);
-  return ok({ agent: a?.status ?? null, influencer: i?.status ?? null, wallet: !!w });
-}
-
-/** GET /api/me/credit — My wallet (customer credit): balance, history, referral code. */
-export async function creditHandler(req: HttpRequest): Promise<HttpResponseInit> {
-  const user = await requireUser(db(), req);
-  return ok(await creditView(db(), user.id));
-}
-
-/** POST /api/referrals/claim {code} — before the first order, once. */
-export async function claimHandler(req: HttpRequest): Promise<HttpResponseInit> {
-  const user = await requireUser(db(), req);
-  await rateLimit(db(), `claim:${user.id}`, 10, 3600);
-  const { code } = await parseBody(req, claimReferralSchema);
-  return ok(await claimReferral(db(), user.id, code));
-}
-
-/** POST /api/orders/{id}/credit {amountPaise} — ask to use credit at pickup. */
-export async function orderCreditHandler(req: HttpRequest): Promise<HttpResponseInit> {
-  const user = await requireUser(db(), req);
-  const { amountPaise } = await parseBody(req, orderCreditSchema);
-  const applied = await requestOrderCredit(db(), user.id, requireUuidParam(req, 'id'), amountPaise);
-  return ok({ creditRequestedPaise: applied });
+  const a = await agentOf(db(), user.id);
+  return ok({ agent: a?.status ?? null });
 }
 
 /** GET /api/terms — current versions and what this person accepted. */
@@ -278,58 +234,29 @@ export const ownerDecision =
     return ok(await reviewDecision(db(), tokenParam(req), kind, note));
   };
 
-// ---- Influencers and wallets ----
+// ---- Agent payout details ----
 
-export async function influencerRegisterHandler(req: HttpRequest): Promise<HttpResponseInit> {
+/** Any registered agent (also pending or suspended) may correct where their money goes. */
+const anyAgent = async (req: HttpRequest) => {
   const user = await requireUser(db(), req);
-  await registerInfluencer(db(), user, await parseBody(req, influencerRegisterSchema));
-  return ok(await influencerMe(db(), user.id), 201);
-}
+  const a = await agentOf(db(), user.id);
+  if (!a) throw new HttpError(404, 'not_agent', 'Register as an agent first');
+  return a;
+};
 
-/** A visit to a shared /r/ link (no sign-in). Only an influencer's own counter changes. */
-export async function linkVisitHandler(req: HttpRequest): Promise<HttpResponseInit> {
-  await rateLimit(db(), `visit:${clientIp(req) ?? 'unknown'}`, 30, 3600);
-  const code = codeSchema.safeParse(req.params.code);
-  if (code.success) await recordLinkVisit(db(), code.data);
-  return { status: 204 };
-}
-
-export async function influencerMeHandler(req: HttpRequest): Promise<HttpResponseInit> {
-  const user = await requireUser(db(), req);
-  return ok(await influencerMe(db(), user.id));
-}
-
-export async function walletHandler(req: HttpRequest): Promise<HttpResponseInit> {
-  const user = await requireUser(db(), req);
-  return ok(await walletView(db(), user.id));
-}
-
-/** POST /api/wallet/withdraw {amountPaise}; header Idempotency-Key makes a retry safe. */
-export async function withdrawHandler(req: HttpRequest): Promise<HttpResponseInit> {
-  const user = await requireUser(db(), req);
-  await rateLimit(db(), `withdraw:${user.id}`, 30, 3600);
-  const { amountPaise } = await parseBody(req, withdrawSchema);
-  const key = z.string().min(8).max(80).safeParse(req.headers.get('idempotency-key'));
-  return ok(await withdraw(db(), user.id, amountPaise, key.success ? key.data : `${Date.now()}`));
-}
-
-export async function panHandler(req: HttpRequest): Promise<HttpResponseInit> {
-  const user = await requireUser(db(), req);
+export async function agentPanHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const a = await anyAgent(req);
   const { pan } = await parseBody(req, panSetSchema);
-  return ok(await setPan(db(), user.id, pan));
+  await setAgentPan(db(), a, pan);
+  return ok(await agentMe(db(), (await agentOf(db(), a.userId))!));
 }
 
-// ---- Shop: credit settlements ----
-
-export async function shopSettlementsHandler(req: HttpRequest): Promise<HttpResponseInit> {
-  const { shop } = await requireShop(db(), req, { ownerOnly: true });
-  return ok(await shopSettlements(db(), shop.id));
-}
-
-export async function shopSettlementRequestHandler(req: HttpRequest): Promise<HttpResponseInit> {
-  const { shop, user } = await requireShop(db(), req, { ownerOnly: true });
-  await requestSettlement(db(), shop.id, user.id);
-  return ok(await shopSettlements(db(), shop.id), 201);
+export async function agentUpiHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const a = await anyAgent(req);
+  await rateLimit(db(), `agent-upi:${a.id}`, 5, 3600);
+  const { upiId } = await parseBody(req, agentUpiSchema);
+  await setAgentUpi(db(), a, upiId);
+  return ok(await agentMe(db(), (await agentOf(db(), a.userId))!));
 }
 
 // ---- Admin ----
@@ -348,13 +275,11 @@ export async function adminAgentsHandler(req: HttpRequest): Promise<HttpResponse
     .select({
       a: agents,
       phone: users.phoneE164,
-      recruitedBy: influencers.code,
       merchants: sql<number>`(select count(*)::int from shops s where s.onboarded_by_agent_id = ${agents.id})`,
       live: sql<number>`(select count(*)::int from shops s where s.onboarded_by_agent_id = ${agents.id} and s.onboarding_status = 'live')`,
     })
     .from(agents)
     .innerJoin(users, eq(users.id, agents.userId))
-    .leftJoin(influencers, eq(influencers.id, agents.recruitedByInfluencerId))
     .where(status ? eq(agents.status, status) : undefined)
     .orderBy(desc(agents.createdAt))
     .limit(500);
@@ -367,14 +292,13 @@ export async function adminAgentsHandler(req: HttpRequest): Promise<HttpResponse
       status: r.a.status,
       merchants: r.merchants,
       live: r.live,
-      recruitedBy: r.recruitedBy,
       createdAt: r.a.createdAt.toISOString(),
     })),
   );
 }
 
 const setStatus =
-  (table: typeof agents | typeof influencers, status: 'active' | 'suspended', entity: string) =>
+  (table: typeof agents, status: 'active' | 'suspended', entity: string) =>
   async (req: HttpRequest): Promise<HttpResponseInit> => {
     const u = await admin(req);
     const id = requireUuidParam(req, 'id');
@@ -385,7 +309,7 @@ const setStatus =
       .set(
         status === 'active'
           ? { status, approvedBy: u.id, approvedAt: new Date() }
-          : ({ status, ...(table === agents ? { suspendedReason: reason } : {}) } as never),
+          : { status, suspendedReason: reason },
       )
       .where(eq(table.id, id))
       .returning();
@@ -399,75 +323,6 @@ const setStatus =
     });
     return { status: 204 };
   };
-
-export async function adminInfluencersHandler(req: HttpRequest): Promise<HttpResponseInit> {
-  await admin(req);
-  const status = statusQ(req, ['pending', 'active', 'suspended']);
-  const rows = await db()
-    .select({
-      i: influencers,
-      referred: sql<number>`(select count(*)::int from referrals r where r.referrer_user_id = ${influencers.userId})`,
-    })
-    .from(influencers)
-    .where(status ? eq(influencers.status, status) : undefined)
-    .orderBy(desc(influencers.createdAt))
-    .limit(500);
-  return ok(
-    rows.map((r) => ({
-      id: r.i.id,
-      code: r.i.code,
-      handle: r.i.handle,
-      platform: r.i.platform,
-      status: r.i.status,
-      referred: r.referred,
-      createdAt: r.i.createdAt.toISOString(),
-    })),
-  );
-}
-
-export async function adminWithdrawalsHandler(req: HttpRequest): Promise<HttpResponseInit> {
-  await admin(req);
-  return ok(await adminWithdrawals(db(), statusQ(req, ['requested', 'sent', 'failed']) ?? null));
-}
-
-export async function adminWithdrawalSentHandler(req: HttpRequest): Promise<HttpResponseInit> {
-  const u = await admin(req);
-  const { utr } = await parseBody(req, utrSchema);
-  await markWithdrawalSent(db(), u.id, requireUuidParam(req, 'id'), utr);
-  return { status: 204 };
-}
-
-export async function adminWithdrawalFailedHandler(req: HttpRequest): Promise<HttpResponseInit> {
-  const u = await admin(req);
-  const { reason } = await parseBody(req, growthReasonSchema);
-  await markWithdrawalFailed(db(), u.id, requireUuidParam(req, 'id'), reason);
-  return { status: 204 };
-}
-
-export async function adminWalletFreezeHandler(req: HttpRequest): Promise<HttpResponseInit> {
-  const u = await admin(req);
-  const { reason } = await parseBody(req, growthReasonSchema);
-  await setFrozen(db(), u.id, requireUuidParam(req, 'id'), true, reason);
-  return { status: 204 };
-}
-
-export async function adminWalletUnfreezeHandler(req: HttpRequest): Promise<HttpResponseInit> {
-  const u = await admin(req);
-  await setFrozen(db(), u.id, requireUuidParam(req, 'id'), false);
-  return { status: 204 };
-}
-
-export async function adminSettlementsHandler(req: HttpRequest): Promise<HttpResponseInit> {
-  await admin(req);
-  return ok(await settlementViews(db(), { status: statusQ(req, ['pending', 'paid']) }));
-}
-
-export async function adminSettlementPaidHandler(req: HttpRequest): Promise<HttpResponseInit> {
-  const u = await admin(req);
-  const { utr } = await parseBody(req, utrSchema);
-  await markSettlementPaid(db(), u.id, requireUuidParam(req, 'id'), utr);
-  return { status: 204 };
-}
 
 export async function adminSubscriptionsHandler(req: HttpRequest): Promise<HttpResponseInit> {
   await admin(req);
@@ -523,23 +378,29 @@ export async function adminFeedbackHandler(req: HttpRequest): Promise<HttpRespon
 
 export async function adminPayoutsHandler(req: HttpRequest): Promise<HttpResponseInit> {
   await admin(req);
-  const rows = await db()
-    .select({ p: agentPayouts, agent: agents.code, shop: shops.shortCode })
-    .from(agentPayouts)
-    .innerJoin(agents, eq(agents.id, agentPayouts.agentId))
-    .innerJoin(shops, eq(shops.id, agentPayouts.shopId))
-    .orderBy(desc(agentPayouts.earnedAt))
-    .limit(500);
   return ok(
-    rows.map((r) => ({
-      id: r.p.id,
-      agentCode: r.agent,
-      shopCode: r.shop,
-      amountPaise: r.p.amountPaise,
-      status: r.p.status,
-      at: r.p.earnedAt.toISOString(),
-    })),
+    await adminPayouts(db(), statusQ(req, ['pending', 'sent', 'failed', 'reversed']) ?? null),
   );
+}
+
+export async function adminPayoutSentHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const u = await admin(req);
+  const { utr } = await parseBody(req, utrSchema);
+  await markPayoutSent(db(), u.id, requireUuidParam(req, 'id'), utr);
+  return { status: 204 };
+}
+
+export async function adminPayoutFailedHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const u = await admin(req);
+  const { reason } = await parseBody(req, growthReasonSchema);
+  await markPayoutFailed(db(), u.id, requireUuidParam(req, 'id'), reason);
+  return { status: 204 };
+}
+
+export async function adminPayoutRetryHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const u = await admin(req);
+  await retryPayout(db(), u.id, requireUuidParam(req, 'id'));
+  return { status: 204 };
 }
 
 export async function adminPayoutReverseHandler(req: HttpRequest): Promise<HttpResponseInit> {
@@ -550,9 +411,6 @@ export async function adminPayoutReverseHandler(req: HttpRequest): Promise<HttpR
 }
 
 http('meProfiles', ['GET'], 'me/profiles', profilesHandler);
-http('meCredit', ['GET'], 'me/credit', creditHandler);
-http('referralClaim', ['POST'], 'referrals/claim', claimHandler);
-http('orderCredit', ['POST'], 'orders/{id}/credit', orderCreditHandler);
 http('terms', ['GET'], 'terms', termsHandler);
 http('termsAccept', ['POST'], 'terms/accept', termsAcceptHandler);
 http('notifications', ['GET'], 'notifications', notificationsHandler);
@@ -561,6 +419,8 @@ http('kits', ['GET'], 'kits', kitsHandler);
 http('kitOffers', ['GET'], 'kits/{type}', kitOffersHandler);
 http('agentRegister', ['POST'], 'agent/register', agentRegisterHandler);
 http('agentMe', ['GET'], 'agent/me', agentMeHandler);
+http('agentPan', ['POST'], 'agent/pan', agentPanHandler);
+http('agentUpi', ['PUT'], 'agent/upi', agentUpiHandler);
 http('agentMerchantNew', ['POST'], 'agent/merchants/new', merchantNewHandler);
 http('agentMerchantConsent', ['POST'], 'agent/merchants/{id}/consent', merchantConsentHandler);
 http('agentMerchantResend', ['POST'], 'agent/merchants/{id}/resend', merchantResendHandler);
@@ -573,14 +433,6 @@ http('ownerReviewApprove', ['POST'], 'm/review/{token}/approve', ownerReviewAppr
 http('ownerReviewChanges', ['POST'], 'm/review/{token}/changes', ownerDecision('changes'));
 http('ownerReviewDecline', ['POST'], 'm/review/{token}/decline', ownerDecision('decline'));
 http('ownerReviewReport', ['POST'], 'm/review/{token}/report', ownerDecision('report'));
-http('influencerRegister', ['POST'], 'influencer/register', influencerRegisterHandler);
-http('influencerMe', ['GET'], 'influencer/me', influencerMeHandler);
-http('linkVisit', ['POST'], 'r/{code}/visit', linkVisitHandler);
-http('wallet', ['GET'], 'wallet', walletHandler);
-http('walletWithdraw', ['POST'], 'wallet/withdraw', withdrawHandler);
-http('walletPan', ['POST'], 'wallet/pan', panHandler);
-http('shopSettlements', ['GET'], 'shop/settlements', shopSettlementsHandler);
-http('shopSettlementRequest', ['POST'], 'shop/settlements/request', shopSettlementRequestHandler);
 http('consoleAgents', ['GET'], 'console/agents', adminAgentsHandler);
 http(
   'consoleAgentApprove',
@@ -594,46 +446,6 @@ http(
   'console/agents/{id}/suspend',
   setStatus(agents, 'suspended', 'agent'),
 );
-http('consoleInfluencers', ['GET'], 'console/influencers', adminInfluencersHandler);
-http(
-  'consoleInfluencerApprove',
-  ['POST'],
-  'console/influencers/{id}/approve',
-  setStatus(influencers, 'active', 'influencer'),
-);
-http(
-  'consoleInfluencerSuspend',
-  ['POST'],
-  'console/influencers/{id}/suspend',
-  setStatus(influencers, 'suspended', 'influencer'),
-);
-http('consoleWithdrawals', ['GET'], 'console/withdrawals', adminWithdrawalsHandler);
-http(
-  'consoleWithdrawalSent',
-  ['POST'],
-  'console/withdrawals/{id}/sent',
-  adminWithdrawalSentHandler,
-);
-http(
-  'consoleWithdrawalFailed',
-  ['POST'],
-  'console/withdrawals/{id}/failed',
-  adminWithdrawalFailedHandler,
-);
-http('consoleWalletFreeze', ['POST'], 'console/wallets/{id}/freeze', adminWalletFreezeHandler);
-http(
-  'consoleWalletUnfreeze',
-  ['POST'],
-  'console/wallets/{id}/unfreeze',
-  adminWalletUnfreezeHandler,
-);
-http('consoleSettlements', ['GET'], 'console/settlements', adminSettlementsHandler);
-http(
-  'consoleSettlementPaid',
-  ['POST'],
-  'console/settlements/{id}/paid',
-  adminSettlementPaidHandler,
-);
 http('consoleSubscriptions', ['GET'], 'console/subscriptions', adminSubscriptionsHandler);
 http(
   'consoleSubscriptionPaid',
@@ -643,4 +455,7 @@ http(
 );
 http('consoleAgentFeedback', ['GET'], 'console/agent-feedback', adminFeedbackHandler);
 http('consolePayouts', ['GET'], 'console/payouts', adminPayoutsHandler);
+http('consolePayoutSent', ['POST'], 'console/payouts/{id}/sent', adminPayoutSentHandler);
+http('consolePayoutFailed', ['POST'], 'console/payouts/{id}/failed', adminPayoutFailedHandler);
+http('consolePayoutRetry', ['POST'], 'console/payouts/{id}/retry', adminPayoutRetryHandler);
 http('consolePayoutReverse', ['POST'], 'console/payouts/{id}/reverse', adminPayoutReverseHandler);

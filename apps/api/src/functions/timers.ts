@@ -3,7 +3,6 @@ import { app, type InvocationContext } from '@azure/functions';
 import { getDb } from '../db/client';
 import { expireLicences, purge, snapshotDailyStats } from '../lib/jobs';
 import { onboardingExpiry, onboardingReminders, payoutCheck } from '../lib/growth/merchants';
-import { weeklySettlements } from '../lib/growth/settlements';
 import { expireUnconfirmed } from '../lib/orders';
 
 function timer(name: string, schedule: string, job: () => Promise<unknown>) {
@@ -26,5 +25,3 @@ timer('purge', '0 30 21 * * *', () => purge(getDb())); // 03:00 IST
 timer('payoutCheck', '0 20 * * * *', () => payoutCheck(getDb()));
 timer('onboardingExpiry', '0 40 * * * *', () => onboardingExpiry(getDb()));
 timer('onboardingReminders', '0 45 * * * *', () => onboardingReminders(getDb()));
-// Credit settlements to merchants: Monday 03:30 IST = Sunday 22:00 UTC.
-timer('weeklySettlements', '0 0 22 * * 0', () => weeklySettlements(getDb()));

@@ -1,14 +1,7 @@
-// Request bodies (strict) and responses for the growth program API.
+// Request bodies (strict) and responses for the growth program API: agents (gig workers),
+// merchant onboarding and subscription, agent payouts, kits, terms and notices.
 import { z } from 'zod';
-import { dateSchema } from './domain';
-import {
-  codeSchema,
-  KIT_TYPES,
-  ONBOARDING_STATUSES,
-  panSchema,
-  TERMS_PARTIES,
-  upiIdSchema,
-} from './growth';
+import { KIT_TYPES, ONBOARDING_STATUSES, panSchema, TERMS_PARTIES, upiIdSchema } from './growth';
 import { phoneSchema } from './schemas';
 
 const iso = z.string();
@@ -20,22 +13,10 @@ export const agentRegisterSchema = z
   .object({
     name: z.string().trim().min(2).max(80),
     upiId: upiIdSchema,
-    /** an influencer's DXI- code when they brought this agent */
-    recruitCode: codeSchema.optional(),
     acceptTerms,
   })
   .strict();
 export type AgentRegister = z.input<typeof agentRegisterSchema>;
-
-export const influencerRegisterSchema = z
-  .object({
-    handle: z.string().trim().min(2).max(60),
-    platform: z.enum(['instagram', 'youtube', 'facebook', 'whatsapp', 'other']),
-    upiId: upiIdSchema,
-    acceptTerms,
-  })
-  .strict();
-export type InfluencerRegister = z.input<typeof influencerRegisterSchema>;
 
 export const newMerchantSchema = z
   .object({
@@ -71,10 +52,9 @@ export const reviewApproveSchema = z
   .strict();
 export const reviewNoteSchema = z.object({ note: z.string().trim().min(3).max(500) }).strict();
 
-export const withdrawSchema = z.object({ amountPaise: z.number().int().positive() }).strict();
 export const panSetSchema = z.object({ pan: panSchema }).strict();
-export const claimReferralSchema = z.object({ code: codeSchema }).strict();
-export const orderCreditSchema = z.object({ amountPaise: z.number().int().min(0) }).strict();
+/** The agent changes the UPI ID their payouts go to (for example after a failed transfer). */
+export const agentUpiSchema = z.object({ upiId: upiIdSchema }).strict();
 export const utrSchema = z
   .object({
     utr: z
@@ -89,32 +69,6 @@ export const termsAcceptSchema = z.object({ party: z.enum(TERMS_PARTIES) }).stri
 
 // ---- Responses ----
 
-export const walletViewSchema = z.object({
-  balancePaise: z.number(),
-  todayRemainingPaise: z.number(),
-  fyEarnedPaise: z.number(),
-  fy: z.string(),
-  panOnFile: z.boolean(),
-  panRequired: z.boolean(),
-  panPrompt: z.boolean(),
-  frozen: z.boolean(),
-  upiHint: z.string(),
-  ledger: z.array(
-    z.object({ id: z.string(), deltaPaise: z.number(), reason: z.string(), at: iso }),
-  ),
-  withdrawals: z.array(
-    z.object({
-      id: z.string(),
-      amountPaise: z.number(),
-      tdsPaise: z.number(),
-      status: z.enum(['requested', 'sent', 'failed']),
-      utr: z.string().nullable(),
-      at: iso,
-    }),
-  ),
-});
-export type WalletView = z.infer<typeof walletViewSchema>;
-
 export const merchantDraftSchema = z.object({
   id: z.string().uuid(),
   shopCode: z.string(),
@@ -128,67 +82,49 @@ export const merchantDraftSchema = z.object({
   missing: z.array(z.string()),
   /** link to send the owner (WhatsApp / SMS), while it is valid */
   ownerLink: z.string().nullable(),
-  payout: z.enum(['none', 'credited', 'reversed']),
+  payout: z.enum(['none', 'pending', 'sent', 'failed', 'reversed']),
   feedbackGiven: z.boolean(),
   note: z.string().nullable(),
   updatedAt: iso,
 });
 export type MerchantDraft = z.infer<typeof merchantDraftSchema>;
 
+export const payoutStatusSchema = z.enum(['pending', 'sent', 'failed', 'reversed']);
+export const agentPayoutSchema = z.object({
+  id: z.string().uuid(),
+  shopName: z.string(),
+  amountPaise: z.number(),
+  tdsPaise: z.number(),
+  /** what reaches the agent's UPI ID: amount − TDS */
+  netPaise: z.number(),
+  status: payoutStatusSchema,
+  utr: z.string().nullable(),
+  /** why a pending payout cannot be sent yet */
+  blocked: z.enum(['pan_required']).nullable(),
+  failureReason: z.string().nullable(),
+  earnedAt: iso,
+  sentAt: iso.nullable(),
+});
+export type AgentPayout = z.infer<typeof agentPayoutSchema>;
+
 export const agentMeSchema = z.object({
   code: z.string(),
   name: z.string(),
   status: z.enum(['pending', 'active', 'suspended']),
   merchants: z.array(merchantDraftSchema),
+  /** where payouts go (hint only; the full UPI ID stays encrypted) */
+  upiHint: z.string(),
+  fy: z.string(),
+  /** earned this financial year, reversals excluded (TDS and the PAN gate use it) */
+  fyEarnedPaise: z.number(),
+  paidPaise: z.number(),
+  pendingPaise: z.number(),
+  panOnFile: z.boolean(),
+  panPrompt: z.boolean(),
+  panRequired: z.boolean(),
+  payouts: z.array(agentPayoutSchema),
 });
 export type AgentMe = z.infer<typeof agentMeSchema>;
-
-export const influencerMeSchema = z.object({
-  code: z.string(),
-  handle: z.string(),
-  status: z.enum(['pending', 'active', 'suspended']),
-  referred: z.number(),
-  rewarded: z.number(),
-  agentsRecruited: z.number(),
-  visits: z.number(),
-});
-export type InfluencerMe = z.infer<typeof influencerMeSchema>;
-
-export const creditViewSchema = z.object({
-  balancePaise: z.number(),
-  expiresOn: dateSchema,
-  referralCode: z.string(),
-  invited: z.number(),
-  rewarded: z.number(),
-  history: z.array(
-    z.object({ id: z.string(), deltaPaise: z.number(), reason: z.string(), at: iso }),
-  ),
-});
-export type CreditView = z.infer<typeof creditViewSchema>;
-
-export const settlementSchema = z.object({
-  id: z.string().uuid(),
-  shopCode: z.string(),
-  shopName: z.string(),
-  mode: z.enum(['weekly', 'requested']),
-  periodStart: dateSchema.nullable(),
-  periodEnd: dateSchema.nullable(),
-  amountPaise: z.number(),
-  status: z.enum(['pending', 'paid']),
-  upiHint: z.string().nullable(),
-  utr: z.string().nullable(),
-  bills: z.number(),
-  createdAt: iso,
-  paidAt: iso.nullable(),
-});
-export type Settlement = z.infer<typeof settlementSchema>;
-
-export const shopSettlementsSchema = z.object({
-  owedPaise: z.number(),
-  canRequestToday: z.boolean(),
-  settlements: z.array(settlementSchema),
-});
-export type ShopSettlements = z.infer<typeof shopSettlementsSchema>;
 
 export const reviewPageSchema = z.object({
   shopName: z.string(),
@@ -254,8 +190,6 @@ export type AppNotification = z.infer<typeof notificationSchema>;
 
 export const roleProfilesSchema = z.object({
   agent: z.enum(['pending', 'active', 'suspended']).nullable(),
-  influencer: z.enum(['pending', 'active', 'suspended']).nullable(),
-  wallet: z.boolean(),
 });
 export type RoleProfiles = z.infer<typeof roleProfilesSchema>;
 
@@ -269,30 +203,27 @@ export const adminAgentSchema = z.object({
   status: z.enum(['pending', 'active', 'suspended']),
   merchants: z.number(),
   live: z.number(),
-  recruitedBy: z.string().nullable(),
   createdAt: iso,
 });
-export const adminInfluencerSchema = z.object({
+export const adminPayoutSchema = z.object({
   id: z.string().uuid(),
-  code: z.string(),
-  handle: z.string(),
-  platform: z.string(),
-  status: z.enum(['pending', 'active', 'suspended']),
-  referred: z.number(),
-  createdAt: iso,
-});
-export const adminWithdrawalSchema = z.object({
-  id: z.string().uuid(),
-  walletId: z.string().uuid(),
-  who: z.string(),
+  agentCode: z.string(),
+  agentName: z.string(),
+  phoneMasked: z.string(),
   upiHint: z.string(),
+  shopCode: z.string(),
+  shopName: z.string(),
   amountPaise: z.number(),
   tdsPaise: z.number(),
-  payPaise: z.number(),
-  status: z.enum(['requested', 'sent', 'failed']),
+  netPaise: z.number(),
+  status: payoutStatusSchema,
   utr: z.string().nullable(),
-  createdAt: iso,
+  blocked: z.enum(['pan_required']).nullable(),
+  failureReason: z.string().nullable(),
+  failedAttempts: z.number(),
+  earnedAt: iso,
 });
+export type AdminPayout = z.infer<typeof adminPayoutSchema>;
 export const adminSubscriptionSchema = z.object({
   id: z.string().uuid(),
   shopCode: z.string(),
