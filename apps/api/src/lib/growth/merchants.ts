@@ -560,6 +560,7 @@ export async function approveReview(db: Db, t: string, method: 'online' | 'offli
       idempotencyKey: `sub:${shop.id}:${Date.now()}`,
       amountPaise: SUBSCRIPTION_TOTAL_PAISE,
       reference: `SUB-${shop.shortCode}`,
+      returnPath: `/m/review/${t}`,
     });
     await db.insert(merchantSubscriptions).values({
       shopId: shop.id,

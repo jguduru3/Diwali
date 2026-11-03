@@ -33,6 +33,8 @@ import {
   useRequestAssistance,
   useStartFee,
 } from '../../lib/queries';
+import { Printer, ReceiptText } from 'lucide-react';
+import { Icon } from '../../components/Icon';
 
 const when = (iso: string) => `${dayIST(iso)}, ${timeIST(iso)}`;
 
@@ -505,7 +507,7 @@ export function OrderPage() {
   if (!order.data) {
     return (
       <EmptyState
-        icon="🧾"
+        icon={<Icon icon={ReceiptText} className="h-6 w-6" />}
         title={t('errors.order_not_found')}
         action={<ButtonLink to="/orders">{t('order.back')}</ButtonLink>}
       />
@@ -616,7 +618,7 @@ export function OrderPage() {
         <>
           <BillView bill={o.bill} />
           <Button variant="secondary" className="no-print w-full" onClick={() => window.print()}>
-            🖨 {t('order.printBill')}
+            <Icon icon={Printer} /> {t('order.printBill')}
           </Button>
         </>
       )}

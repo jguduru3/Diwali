@@ -26,6 +26,8 @@ import {
 } from '../../lib/growth';
 import { openShopSetup } from '../../lib/queries';
 import { TermsCheck } from './TermsCheck';
+import { Circle, CircleCheck } from 'lucide-react';
+import { Icon } from '../../components/Icon';
 
 const STEPS = ['draft', 'setup', 'review', 'approved', 'live'] as const;
 
@@ -336,7 +338,8 @@ function MerchantCard({ m, link }: { m: MerchantDraft; link?: string | null }) {
               {['licence', 'gstin', 'hours', 'map', 'products'].map((k) => (
                 <li key={k}>
                   <Badge tone={m.missing.includes(k) ? 'saffron' : 'emerald'}>
-                    {m.missing.includes(k) ? '○' : '✓'} {t(`agent.need.${k}`)}
+                    <Icon icon={m.missing.includes(k) ? Circle : CircleCheck} />{' '}
+                    {t(`agent.need.${k}`)}
                   </Badge>
                 </li>
               ))}

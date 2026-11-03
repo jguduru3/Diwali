@@ -12,6 +12,8 @@ import { itemName } from '../../lib/format';
 import { usePlan } from '../../lib/planList';
 import { useOrderingInfo, usePlaceOrder, useShop, useShopItems } from '../../lib/queries';
 import { usePlanDetails } from './usePlanDetails';
+import { ListChecks } from 'lucide-react';
+import { Icon } from '../../components/Icon';
 
 /**
  * Review the order. Placing it sends item ids and quantities only — the server
@@ -49,7 +51,7 @@ export function PlanPage() {
   if (!plan.lines.length) {
     return (
       <EmptyState
-        icon="🪔"
+        icon={<Icon icon={ListChecks} className="h-6 w-6" />}
         title={t('plan.emptyTitle')}
         body={t('plan.emptyBody')}
         action={<ButtonLink to={`/s/${code}`}>{t('plan.browse')}</ButtonLink>}

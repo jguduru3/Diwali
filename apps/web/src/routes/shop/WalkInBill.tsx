@@ -4,6 +4,8 @@ import { formatPaise, type Item, type PlanPayload } from '@pataka/shared';
 import { Badge, Button, Card, Notice, cx } from '../../components/ui';
 import { itemName } from '../../lib/format';
 import { useOwnItems, useShopContext } from '../../lib/queries';
+import { Printer } from 'lucide-react';
+import { Icon } from '../../components/Icon';
 
 type Line = {
   itemNo: number;
@@ -184,7 +186,7 @@ export function WalkInBill({ plan, onDone }: { plan: PlanPayload; onDone: () => 
 
         <div className="no-print mt-4 grid gap-3 sm:grid-cols-2">
           <Button variant="secondary" size="lg" onClick={() => window.print()}>
-            🖨 {t('counter.print')}
+            <Icon icon={Printer} /> {t('counter.print')}
           </Button>
           <Button variant="dark" size="lg" onClick={onDone}>
             {t('counter.done')}

@@ -34,6 +34,14 @@ import { loadLocalSettings } from './localSettings.mjs';
 import { seedGrowth } from './seedGrowth.mjs';
 
 loadLocalSettings();
+// Demo data only: never against a live database.
+const azureDb = /\.postgres\.database\.azure\.com/.test(process.env.DATABASE_URL ?? '');
+if (process.env.APP_ENV === 'prod' || (azureDb && process.env.SEED_ALLOW_AZURE !== 'true')) {
+  console.error(
+    'Refusing to seed demo data here. For the Azure dev database set SEED_ALLOW_AZURE=true.',
+  );
+  process.exit(1);
+}
 const db = getDb();
 const phone = (n: number) => `+9190000000${String(n).padStart(2, '0')}`;
 

@@ -76,6 +76,17 @@ export const env = {
       throw new Error('The mock payment provider is not allowed in prod');
     return name;
   },
+  /** Razorpay keys (Key Vault). The key ID shows whether they are test or live keys. */
+  razorpay(): { keyId: string; keySecret: string; webhookSecret: string } {
+    const keyId = required('RAZORPAY_KEY_ID');
+    if (this.isProd() && !keyId.startsWith('rzp_live_'))
+      throw new Error('Production needs live Razorpay keys (rzp_live_…)');
+    return {
+      keyId,
+      keySecret: required('RAZORPAY_KEY_SECRET'),
+      webhookSecret: required('RAZORPAY_WEBHOOK_SECRET'),
+    };
+  },
   mockPaymentSecret(): string {
     if (this.isProd()) throw new Error('The mock payment provider is not allowed in prod');
     return process.env.MOCK_PAYMENT_SECRET || 'dev-only-mock-payment-secret';

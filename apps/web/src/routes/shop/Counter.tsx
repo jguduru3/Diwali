@@ -32,6 +32,8 @@ import {
 import { BillView } from '../customer/OrderPage';
 import { PackPhoto } from './Packing';
 import { WalkInBill } from './WalkInBill';
+import { Bell, Car, Check, Lock, Printer, X } from 'lucide-react';
+import { Icon } from '../../components/Icon';
 
 type Method = 'upi' | 'card' | 'cash';
 
@@ -91,7 +93,7 @@ function Payment({
 
       {locked && (
         <Notice tone="gold" className="mt-4">
-          🔒 {t('counter.verifyPackNotice')}
+          <Icon icon={Lock} /> {t('counter.verifyPackNotice')}
         </Notice>
       )}
 
@@ -102,9 +104,9 @@ function Payment({
           onChange={setMethod}
           disabled={locked}
           options={[
-            { value: 'upi', label: `📱 ${t('counter.phonepeQr')}` },
-            { value: 'cash', label: `💵 ${t('counter.cash')}` },
-            { value: 'card', label: `💳 ${t('counter.card')}` },
+            { value: 'upi', label: `${t('counter.phonepeQr')}` },
+            { value: 'cash', label: `${t('counter.cash')}` },
+            { value: 'card', label: `${t('counter.card')}` },
           ]}
         />
       </div>
@@ -148,7 +150,7 @@ function Payment({
               >
                 {qr.isPending
                   ? t('common.loading')
-                  : `✓ ${t('counter.confirmQrPayment')} · ${formatPaise(due)}`}
+                  : `${t('counter.confirmQrPayment')} · ${formatPaise(due)}`}
               </Button>
               <ErrorText error={qr.error} />
             </div>
@@ -229,7 +231,7 @@ function Payment({
           >
             {card.isPending
               ? t('common.loading')
-              : `✓ ${t('counter.confirmCardPayment')} · ${formatPaise(due)}`}
+              : `${t('counter.confirmCardPayment')} · ${formatPaise(due)}`}
           </Button>
           <ErrorText error={card.error} />
         </form>
@@ -300,7 +302,7 @@ function Payment({
           >
             {cash.isPending
               ? t('common.loading')
-              : `✓ ${t('counter.confirmCashPayment')} · ${formatPaise(due)}`}
+              : `${t('counter.confirmCashPayment')} · ${formatPaise(due)}`}
           </Button>
           <ErrorText error={cash.error} />
         </form>
@@ -320,12 +322,12 @@ function OrderAtCounter({ initial, onNext }: { initial: StaffOrder; onNext: () =
     return (
       <div className="mx-auto max-w-xl space-y-4">
         <Notice tone="emerald" className="text-base font-semibold">
-          ✓ {t('counter.paid', { no: order.bill.billNo })}
+          <Icon icon={Check} /> {t('counter.paid', { no: order.bill.billNo })}
         </Notice>
         <BillView bill={order.bill} />
         <div className="no-print grid gap-3 sm:grid-cols-2">
           <Button variant="secondary" size="lg" onClick={() => window.print()}>
-            🖨 {t('counter.printReceipt')}
+            <Icon icon={Printer} /> {t('counter.printReceipt')}
           </Button>
           <Button size="lg" onClick={onNext}>
             ⌖ {t('counter.next')}
@@ -363,7 +365,7 @@ function OrderAtCounter({ initial, onNext }: { initial: StaffOrder; onNext: () =
               <div className="mt-3 border-t border-white/20 pt-2 text-xs text-white/90 space-y-1">
                 {order.arrivalStatus && order.arrivalStatus !== 'not_arrived' && (
                   <p>
-                    🚗{' '}
+                    <Icon icon={Car} />{' '}
                     {order.arrivalStatus === 'on_the_way'
                       ? t('counter.customerArrivalOnTheWay')
                       : t('counter.customerArrivalArrived')}
@@ -372,8 +374,8 @@ function OrderAtCounter({ initial, onNext }: { initial: StaffOrder; onNext: () =
                 {order.assistanceType && (
                   <p>
                     {order.assistanceType === 'bring_to_car'
-                      ? `🚙 ${t('order.assistanceOptionCar')}`
-                      : `📝 ${t('order.assistanceOptionOther')}`}
+                      ? `${t('order.assistanceOptionCar')}`
+                      : `${t('order.assistanceOptionOther')}`}
                     {order.assistanceNotes && ` · ${order.assistanceNotes}`}
                   </p>
                 )}
@@ -463,7 +465,7 @@ function OrderAtCounter({ initial, onNext }: { initial: StaffOrder; onNext: () =
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald text-base font-bold text-white shadow-xs">
-                  ✓
+                  <Icon icon={Check} />
                 </div>
                 <div>
                   <p className="font-semibold text-emerald-deep">
@@ -507,7 +509,9 @@ function ArrivalsAndAssistancePanel() {
     <Card className="p-6">
       <div className="flex items-center justify-between pb-3 border-b border-line">
         <h3 className="text-base font-bold text-ink flex items-center gap-2">
-          <span>🔔</span>
+          <span>
+            <Icon icon={Bell} />
+          </span>
           <span>{t('counter.assistanceSectionTitle')}</span>
         </h3>
         <Badge tone={items.length > 0 ? 'plum' : 'muted'}>{items.length}</Badge>
@@ -531,8 +535,8 @@ function ArrivalsAndAssistancePanel() {
                   {item.arrivalStatus !== 'not_arrived' && (
                     <Badge tone={item.arrivalStatus === 'on_the_way' ? 'plum' : 'emerald'}>
                       {item.arrivalStatus === 'on_the_way'
-                        ? `🚗 ${t('counter.customerArrivalOnTheWay')}`
-                        : `📍 ${t('counter.customerArrivalArrived')}`}
+                        ? `${t('counter.customerArrivalOnTheWay')}`
+                        : `${t('counter.customerArrivalArrived')}`}
                     </Badge>
                   )}
                   {item.assistanceStatus !== 'none' && (
@@ -566,8 +570,8 @@ function ArrivalsAndAssistancePanel() {
                 <div className="rounded-xl bg-sand/30 p-2.5 text-xs text-ink space-y-1">
                   <p className="font-semibold text-ink">
                     {item.assistanceType === 'bring_to_car'
-                      ? `🚙 ${t('order.assistanceOptionCar')}`
-                      : `📝 ${t('order.assistanceOptionOther')}`}
+                      ? `${t('order.assistanceOptionCar')}`
+                      : `${t('order.assistanceOptionOther')}`}
                   </p>
                   {item.assistanceNotes && <p className="text-muted">{item.assistanceNotes}</p>}
                 </div>
@@ -583,7 +587,7 @@ function ArrivalsAndAssistancePanel() {
                       disabled={review.isPending}
                       onClick={() => review.mutate({ id: item.id, body: { decision: 'approve' } })}
                     >
-                      ✓ {t('counter.approveAssistance')}
+                      <Icon icon={Check} /> {t('counter.approveAssistance')}
                     </Button>
                     <Button
                       size="sm"
@@ -591,7 +595,7 @@ function ArrivalsAndAssistancePanel() {
                       disabled={review.isPending}
                       onClick={() => review.mutate({ id: item.id, body: { decision: 'reject' } })}
                     >
-                      ✕ {t('counter.rejectAssistance')}
+                      <Icon icon={X} /> {t('counter.rejectAssistance')}
                     </Button>
                   </>
                 )}
@@ -606,7 +610,7 @@ function ArrivalsAndAssistancePanel() {
                       title={t('counter.carHandoverComplianceNotice')}
                       className="opacity-60 cursor-not-allowed"
                     >
-                      🔒 {t('counter.carHandoverAction')}
+                      <Icon icon={Lock} /> {t('counter.carHandoverAction')}
                     </Button>
                     <span className="text-[10px] text-danger font-medium">
                       {t('counter.carHandoverComplianceNotice')}

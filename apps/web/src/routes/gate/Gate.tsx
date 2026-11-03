@@ -10,6 +10,8 @@ import {
   useGateAssistanceNotifications,
   useGateLookup,
 } from '../../lib/queries';
+import { Bell, Check } from 'lucide-react';
+import { Icon } from '../../components/Icon';
 
 function ClusterPicker() {
   const { t } = useTranslation();
@@ -125,7 +127,9 @@ function GateAssistanceNotificationsPanel() {
     <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur space-y-4">
       <div className="flex items-center justify-between border-b border-white/10 pb-3">
         <h2 className="text-base font-bold text-white flex items-center gap-2">
-          <span>🔔</span>
+          <span>
+            <Icon icon={Bell} />
+          </span>
           <span>{t('gate.assistanceSectionTitle')}</span>
         </h2>
         <Badge tone="saffron">
@@ -148,16 +152,16 @@ function GateAssistanceNotificationsPanel() {
               </div>
               <Badge tone={item.gateNotificationStatus === 'acknowledged' ? 'emerald' : 'saffron'}>
                 {item.gateNotificationStatus === 'acknowledged'
-                  ? `✓ ${t('gate.acknowledgedBadge')}`
-                  : `⏳ ${t('gate.notifiedBadge')}`}
+                  ? `${t('gate.acknowledgedBadge')}`
+                  : `${t('gate.notifiedBadge')}`}
               </Badge>
             </div>
 
             <div className="rounded-xl bg-white/5 p-3 text-xs text-white/90 space-y-1">
               <p className="font-semibold text-gold-light">
                 {item.assistanceType === 'bring_to_car'
-                  ? `🚙 ${t('order.assistanceOptionCar')}`
-                  : `📝 ${t('order.assistanceOptionOther')}`}
+                  ? `${t('order.assistanceOptionCar')}`
+                  : `${t('order.assistanceOptionOther')}`}
               </p>
               {item.assistanceNotes && <p className="text-white/80">{item.assistanceNotes}</p>}
             </div>
@@ -170,7 +174,7 @@ function GateAssistanceNotificationsPanel() {
                   disabled={ack.isPending}
                   onClick={() => ack.mutate({ id: item.id })}
                 >
-                  ✓ {t('gate.acknowledgeBtn')}
+                  <Icon icon={Check} /> {t('gate.acknowledgeBtn')}
                 </Button>
               </div>
             )}

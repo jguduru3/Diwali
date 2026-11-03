@@ -1,5 +1,23 @@
 # Changelog
 
+## Production-ready release (2026-11-03)
+
+- **Icons instead of emojis:** one line-icon set (lucide, 1.75 stroke) across every screen; the
+  "Green crackers only" and green-certificate badges use a leaf icon; payment methods, printing,
+  photos, alerts and empty states use matching icons. Hard-coded payment method names now use
+  the translated labels.
+- **Razorpay adapter** (`apps/api/src/lib/payments/razorpay.ts`, REST only — G3) for the ₹30
+  order fee and the merchant subscription: hosted Payment Links with a stable reference (a retry
+  returns the same link), HMAC-verified webhooks, refunds; payers return to their order or review
+  page. Production refuses test keys. Bicep, Key Vault and the infra workflow carry the keys;
+  `params.prod.json` selects `razorpay`.
+- **Production readiness check:** `/api/health` reports `config` and answers 503 in prod until
+  every live setting is in place; the deploy smoke test fails on a missing secret.
+- **Demo data can no longer reach production:** `pnpm db:seed` refuses `APP_ENV=prod` and Azure
+  databases (unless `SEED_ALLOW_AZURE=true` for dev).
+- Load test re-run on this release (docs/LOAD_TEST_REPORT.md). L1 unchanged: `ORDERING_ENABLED`
+  stays off in production until the legal opinion.
+
 ## Growth follow-ups (2026-11-03)
 
 - **Growth demo data:** `pnpm db:seed` now builds an influencer, an agent recruited by them with

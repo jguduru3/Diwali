@@ -1,4 +1,6 @@
 import { useTranslation } from 'react-i18next';
+import { ShieldAlert } from 'lucide-react';
+import { Icon } from './Icon';
 
 /** G8: shown on the pickup QR screen, the list QR and every bill. */
 export function SafetyNotice() {
@@ -9,7 +11,7 @@ export function SafetyNotice() {
       className="flex gap-3 rounded-2xl border border-saffron/30 bg-saffron/8 p-4 text-sm text-ink"
     >
       <span aria-hidden className="text-xl">
-        🪔
+        <Icon icon={ShieldAlert} />
       </span>
       <p className="font-semibold">{t('safety.notice')}</p>
     </div>

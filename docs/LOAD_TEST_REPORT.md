@@ -44,6 +44,21 @@ The local Azure Functions emulator (`func start`) is a debugging host: it topped
 | Shop page, every request a different shop                              | 842                             | 49 ms    | 66 ms      |
 | Place an order (server pricing, stock, ₹30 fee checkout)               | ≈ 70 sustained, saturates ≈ 100 | 30 ms    | 96 ms      |
 
+## Re-run on the production-ready release (3 November 2026, evening)
+
+Same laptop and dataset (3,000 listed merchants, 45,000 products, 3,000 customers, in its own
+`loadtest` database), after the icon update, the Razorpay adapter and the readiness check:
+
+| Run                                  | Success | p50   | p95    | p99    | Notes                                                            |
+| ------------------------------------ | ------- | ----- | ------ | ------ | ---------------------------------------------------------------- |
+| Visit mix, 250 req/s, 30 s (warm)    | 100%    | 13 ms | 98 ms  | 603 ms | 7,497 requests, no errors                                        |
+| Order mix, 60 req/s (≈ 42 orders/s)  | 100%    | 40 ms | 314 ms | 517 ms | 1,247 orders placed, order p50 68 ms                             |
+| Order mix, 100 req/s (≈ 70 orders/s) | 99.8%   | 2.4 s | 6.6 s  | 8.6 s  | saturated: 6 timeouts; database and load generator share 4 cores |
+
+With the dev servers and a browser running on the same cores the first cold run dropped to 95%
+(connection errors); stop them before measuring. The 50,000 req/s target still has to be proven
+on the deployed stack with `loadtest/k6-peak.js`.
+
 ## Changes made because of these tests
 
 1. **In-instance cache for the public catalogue** (`apps/api/src/lib/cache.ts`): the shop list,

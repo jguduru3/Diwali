@@ -42,6 +42,8 @@ import {
   useShopContext,
   useSoldOut,
 } from '../../lib/queries';
+import { Camera } from 'lucide-react';
+import { Icon } from '../../components/Icon';
 
 type Draft = {
   categoryId: string;
@@ -685,7 +687,7 @@ function PhotoButton({ item }: { item: Item }) {
   return (
     <span>
       <label className="inline-flex min-h-10 cursor-pointer items-center rounded-2xl px-3 text-sm font-semibold text-plum hover:bg-plum/5">
-        📷 {upload.isPending ? t('common.loading') : t('prices.uploadPhoto')}
+        <Icon icon={Camera} /> {upload.isPending ? t('common.loading') : t('prices.uploadPhoto')}
         <input
           type="file"
           accept="image/*"

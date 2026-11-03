@@ -8,6 +8,8 @@ import { Brand } from './Brand';
 import { DemoRibbon, DemoSwitcher } from './DemoSwitcher';
 import { LanguageMenu } from './LanguageMenu';
 import { cx } from './ui';
+import { ShieldCheck } from 'lucide-react';
+import { Icon } from './Icon';
 
 const areaLinks: { to: string; area: Area }[] = [
   { to: '/shop', area: 'shop' },
@@ -94,7 +96,7 @@ export function Layout() {
         <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-6 text-sm text-muted sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <p className="flex items-start gap-2">
             <span aria-hidden className="text-gold-deep">
-              ✦
+              <Icon icon={ShieldCheck} />
             </span>
             {t('safety.notice')}
           </p>

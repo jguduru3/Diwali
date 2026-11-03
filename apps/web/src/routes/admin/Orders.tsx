@@ -16,6 +16,8 @@ import {
 } from '../../components/ui';
 import { dayIST, timeIST } from '../../lib/format';
 import { useAdminOrders, useRefundFee } from '../../lib/queries';
+import { Camera } from 'lucide-react';
+import { Icon } from '../../components/Icon';
 
 function OrderRow({ o }: { o: AdminOrder }) {
   const { t } = useTranslation();
@@ -55,7 +57,7 @@ function OrderRow({ o }: { o: AdminOrder }) {
             rel="noreferrer"
             className="text-sm font-semibold text-plum underline-offset-4 hover:underline"
           >
-            📷 {t('packPhoto.view')}
+            <Icon icon={Camera} /> {t('packPhoto.view')}
           </a>
         )}
         {refundable && !open && (

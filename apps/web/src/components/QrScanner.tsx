@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, Input, cx } from './ui';
+import { Image } from 'lucide-react';
+import { Icon } from './Icon';
 
 type Detector = {
   detect: (src: CanvasImageSource | ImageBitmap) => Promise<{ rawValue: string }[]>;
@@ -192,7 +194,7 @@ export function QrScanner({
             )}
           >
             <span aria-hidden className="text-xl">
-              🖼
+              <Icon icon={Image} />
             </span>{' '}
             {t('scan.photo')}
             <input

@@ -67,5 +67,6 @@ Home → Kits lists each type with shop counts and the lowest price; `/kits/<typ
 
 ## Still to do before launch
 
-- A real fee-payment provider for the ₹30 fee and the subscription (mock only today) and a payout account.
+- Razorpay live keys and webhook for the ₹30 fee and the subscription (adapter built; see
+  docs/DEPLOY.md), and a payout account for agent and influencer withdrawals.
 - Native-speaker review of the new Telugu and Hindi strings.

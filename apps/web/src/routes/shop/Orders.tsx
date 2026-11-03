@@ -15,6 +15,8 @@ import {
 } from '../../components/ui';
 import { dayIST, timeIST } from '../../lib/format';
 import { useConfirmOrder, useRejectOrder, useShopOrders, type OrdersView } from '../../lib/queries';
+import { Check, ReceiptText } from 'lucide-react';
+import { Icon } from '../../components/Icon';
 
 function Row({ o, actions }: { o: StaffOrderSummary; actions: boolean }) {
   const { t } = useTranslation();
@@ -82,7 +84,7 @@ function Row({ o, actions }: { o: StaffOrderSummary; actions: boolean }) {
                 disabled={confirm.isPending}
                 onClick={() => confirm.mutate({ id: o.id })}
               >
-                ✓ {t('shopOrders.confirm')}
+                <Icon icon={Check} /> {t('shopOrders.confirm')}
               </Button>
               <Button variant="secondary" onClick={() => setRejecting(true)}>
                 {t('shopOrders.reject')}
@@ -121,7 +123,7 @@ export function Orders() {
       <ErrorText error={orders.error} />
       {orders.data?.length === 0 && (
         <EmptyState
-          icon="🧾"
+          icon={<Icon icon={ReceiptText} className="h-6 w-6" />}
           title={view === 'incoming' ? t('shopOrders.emptyIncoming') : t('shopOrders.empty')}
         />
       )}

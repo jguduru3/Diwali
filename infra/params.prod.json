@@ -8,6 +8,7 @@
     "seasonEnd": { "value": "2026-11-20" },
     "demoMode": { "value": false },
     "otpDevMode": { "value": false },
+    "paymentProvider": { "value": "razorpay" },
     "alertEmail": { "value": "care@truerenewables.in" },
     "postgresSkuName": { "value": "Standard_D8ds_v5" },
     "postgresTier": { "value": "GeneralPurpose" },

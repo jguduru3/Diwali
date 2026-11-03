@@ -38,6 +38,8 @@ import {
   useShopOrders,
   useStartPacking,
 } from '../../lib/queries';
+import { Camera, Check, Package, Printer } from 'lucide-react';
+import { Icon } from '../../components/Icon';
 
 /**
  * Proof of what was packed: the packer photographs the pack with its sticker on.
@@ -88,7 +90,7 @@ export function PackPhoto({ order, canUpload }: { order: StaffOrder; canUpload: 
             upload.isPending && 'pointer-events-none opacity-60',
           )}
         >
-          📷 {order.packPhotoAt ? t('packPhoto.retake') : t('packPhoto.take')}
+          <Icon icon={Camera} /> {order.packPhotoAt ? t('packPhoto.retake') : t('packPhoto.take')}
           <input
             type="file"
             accept="image/*"
@@ -160,7 +162,7 @@ function Sticker({
       </Card>
       <p className="no-print text-center text-sm text-muted">{t('packing.stickerHelp')}</p>
       <Button size="lg" className="no-print w-full" onClick={() => window.print()}>
-        🖨 {t('packing.printSticker')}
+        <Icon icon={Printer} /> {t('packing.printSticker')}
       </Button>
       <Button variant="ghost" className="no-print w-full" onClick={onReprint}>
         {t('packing.reprint')}
@@ -217,7 +219,7 @@ function LineRow({ order, line }: { order: StaffOrder; line: StaffOrderLine }) {
               disabled={pick.isPending}
               onClick={() => pick.mutate({ id: order.id, body: { lineId: line.id } })}
             >
-              ✓ {t('packing.pickByHand')}
+              <Icon icon={Check} /> {t('packing.pickByHand')}
             </Button>
           )}
           <Button
@@ -359,7 +361,7 @@ function PackOrder({ id, onBack }: { id: string; onBack: () => void }) {
             />
             {lastScan && !scan.error && (
               <p className="mt-3 text-sm font-semibold text-emerald">
-                ✓ {t('packing.lastScan', { name: lastScan })}
+                <Icon icon={Check} /> {t('packing.lastScan', { name: lastScan })}
               </p>
             )}
             <div className="mt-3">
@@ -415,7 +417,9 @@ export function Packing() {
       <h2 className="text-xl font-bold">{t('packing.queue')}</h2>
       {queue.isPending && <Spinner label={t('common.loading')} />}
       <ErrorText error={queue.error} />
-      {queue.data?.length === 0 && <EmptyState icon="📦" title={t('packing.empty')} />}
+      {queue.data?.length === 0 && (
+        <EmptyState icon={<Icon icon={Package} className="h-6 w-6" />} title={t('packing.empty')} />
+      )}
       <ul className="space-y-3">
         {queue.data?.map((o) => (
           <Card as="li" key={o.id} className="flex flex-wrap items-center gap-3 p-4">

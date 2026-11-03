@@ -50,7 +50,7 @@ jobs:
                jwtSecret="${{ secrets.JWT_SECRET }}" \
                merchantSecretsKey="${{ secrets.MERCHANT_SECRETS_KEY }}" \
                msg91AuthKey="${{ secrets.MSG91_AUTH_KEY }}" \
-               msg91TemplateId="${{ vars.MSG91_TEMPLATE_ID }}" \
+               msg91TemplateId="${{ vars.MSG91_TEMPLATE_ID }}"                razorpayKeyId="${{ secrets.RAZORPAY_KEY_ID }}"                razorpayKeySecret="${{ secrets.RAZORPAY_KEY_SECRET }}"                razorpayWebhookSecret="${{ secrets.RAZORPAY_WEBHOOK_SECRET }}" \
                deployerPrincipalId="${{ secrets.AZURE_DEPLOYER_OBJECT_ID }}" \
             --query properties.outputs -o json > outputs.json
           jq -r 'to_entries[] | "- **\(.key)**: \(.value.value)"' outputs.json >> "$GITHUB_STEP_SUMMARY"

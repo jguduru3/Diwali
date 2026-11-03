@@ -4,6 +4,8 @@ import { ErrorText } from '../../components/ErrorText';
 import { ButtonLink, Card, EmptyState, Spinner, Stat } from '../../components/ui';
 import { dayIST } from '../../lib/format';
 import { useAdminLicences, useMetrics } from '../../lib/queries';
+import { ChartColumn } from 'lucide-react';
+import { Icon } from '../../components/Icon';
 
 /** Orders, platform fees and refunds per day; merchant sales for reconciliation only (G4). */
 export function Overview() {
@@ -42,7 +44,11 @@ export function Overview() {
       )}
 
       {rows.length === 0 ? (
-        <EmptyState icon="📊" title={t('report.emptyTitle')} body={t('admin.metricsEmpty')} />
+        <EmptyState
+          icon={<Icon icon={ChartColumn} className="h-6 w-6" />}
+          title={t('report.emptyTitle')}
+          body={t('admin.metricsEmpty')}
+        />
       ) : (
         <Card className="overflow-x-auto">
           <table className="w-full min-w-[44rem] text-left text-sm">

@@ -4,11 +4,17 @@ import { itemsResponseSchema } from './domain';
 
 describe('healthResponseSchema', () => {
   it('accepts the health payload', () => {
-    expect(healthResponseSchema.parse({ ok: true, db: true })).toEqual({ ok: true, db: true });
+    expect(healthResponseSchema.parse({ ok: true, db: true, config: true })).toEqual({
+      ok: true,
+      db: true,
+      config: true,
+    });
   });
 
   it('rejects extra keys', () => {
-    expect(() => healthResponseSchema.parse({ ok: true, db: true, extra: 1 })).toThrow();
+    expect(() =>
+      healthResponseSchema.parse({ ok: true, db: true, config: true, extra: 1 }),
+    ).toThrow();
   });
 });
 

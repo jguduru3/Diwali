@@ -29,8 +29,16 @@ param msg91AuthKey string = ''
 param msg91TemplateId string = ''
 @description('L1 legal gate (SPEC_V3 §2): online ordering. Keep false until a written legal opinion clears it.')
 param orderingEnabled bool = false
-@description('Platform-fee payment adapter. "mock" is refused in prod; leave empty until an authorised provider adapter exists.')
+@description('Platform-fee payment adapter: "razorpay" (live), or "mock" outside prod only.')
 param paymentProvider string = ''
+@secure()
+@description('Razorpay key ID (rzp_live_… in prod). Dashboard → Settings → API keys.')
+param razorpayKeyId string = ''
+@secure()
+param razorpayKeySecret string = ''
+@secure()
+@description('Secret of the webhook pointed at https://<domain>/api/payments/webhook/razorpay.')
+param razorpayWebhookSecret string = ''
 @secure()
 @minLength(32)
 @description('Encrypts merchants\' YouPI-PG webhook secrets at rest.')
@@ -227,6 +235,9 @@ var secrets = {
   'MERCHANT-SECRETS-KEY': merchantSecretsKey
   'MSG91-AUTH-KEY': empty(msg91AuthKey) ? 'not-set' : msg91AuthKey
   'MSG91-TEMPLATE-ID': empty(msg91TemplateId) ? 'not-set' : msg91TemplateId
+  'RAZORPAY-KEY-ID': empty(razorpayKeyId) ? 'not-set' : razorpayKeyId
+  'RAZORPAY-KEY-SECRET': empty(razorpayKeySecret) ? 'not-set' : razorpayKeySecret
+  'RAZORPAY-WEBHOOK-SECRET': empty(razorpayWebhookSecret) ? 'not-set' : razorpayWebhookSecret
 }
 
 resource vaultSecrets 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = [
@@ -299,6 +310,9 @@ resource func 'Microsoft.Web/sites@2024-04-01' = {
         { name: 'STORAGE_ACCOUNT_NAME', value: storage.name }
         { name: 'ORDERING_ENABLED', value: string(orderingEnabled) }
         { name: 'PAYMENT_PROVIDER', value: effectiveProvider }
+        { name: 'RAZORPAY_KEY_ID', value: '@Microsoft.KeyVault(SecretUri=${vaultUri}secrets/RAZORPAY-KEY-ID)' }
+        { name: 'RAZORPAY_KEY_SECRET', value: '@Microsoft.KeyVault(SecretUri=${vaultUri}secrets/RAZORPAY-KEY-SECRET)' }
+        { name: 'RAZORPAY_WEBHOOK_SECRET', value: '@Microsoft.KeyVault(SecretUri=${vaultUri}secrets/RAZORPAY-WEBHOOK-SECRET)' }
         { name: 'MERCHANT_SECRETS_KEY', value: '@Microsoft.KeyVault(SecretUri=${vaultUri}secrets/MERCHANT-SECRETS-KEY)' }
         { name: 'PUBLIC_ORIGIN', value: empty(domain) ? '' : 'https://${domain}' }
         { name: 'DB_POOL_MAX', value: string(dbPoolMax) }

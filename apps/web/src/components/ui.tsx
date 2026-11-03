@@ -8,6 +8,8 @@ import type {
   TextareaHTMLAttributes,
 } from 'react';
 import { Link, type LinkProps } from 'react-router-dom';
+import { Inbox } from 'lucide-react';
+import { Icon } from './Icon';
 
 export const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(' ');
 
@@ -264,7 +266,7 @@ export function Spinner({ label }: { label: string }) {
 }
 
 export function EmptyState({
-  icon = '✦',
+  icon = <Icon icon={Inbox} className="h-6 w-6" />,
   title,
   body,
   action,

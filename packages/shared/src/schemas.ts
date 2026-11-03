@@ -7,6 +7,8 @@ export const healthResponseSchema = z
   .object({
     ok: z.boolean(),
     db: z.boolean(),
+    /** production settings complete (always true outside production) */
+    config: z.boolean(),
   })
   .strict();
 export type HealthResponse = z.infer<typeof healthResponseSchema>;

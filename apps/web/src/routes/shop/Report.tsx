@@ -17,6 +17,17 @@ import {
 } from '../../components/ui';
 import { dateTimeIST, dayIST, itemName } from '../../lib/format';
 import { useShopAnalytics, useShopScope } from '../../lib/queries';
+import {
+  Banknote,
+  Check,
+  CreditCard,
+  FileSpreadsheet,
+  Package,
+  QrCode,
+  Tag,
+  Wallet,
+} from 'lucide-react';
+import { Icon } from '../../components/Icon';
 
 type DatePreset = 'today' | 'yesterday' | 'last7' | 'last30' | 'thisMonth' | 'custom';
 type AnalyticsTab = 'products' | 'inventory';
@@ -83,7 +94,7 @@ export function Report() {
         subtitle={t('report.analyticsSubtitle')}
         action={
           <Button variant="secondary" onClick={handleExport}>
-            📊 {t('report.exportExcel')}
+            <Icon icon={FileSpreadsheet} /> {t('report.exportExcel')}
           </Button>
         }
       />
@@ -196,7 +207,7 @@ export function Report() {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Card className="p-4 border-l-4 border-l-gold">
             <p className="text-xs font-semibold text-muted uppercase">
-              📱 {t('report.phonepeTotal')}
+              <Icon icon={QrCode} /> {t('report.phonepeTotal')}
             </p>
             <p className="mt-1 font-display text-2xl font-bold text-ink">
               {formatPaise(breakdown.qr.totalPaise)}
@@ -205,7 +216,9 @@ export function Report() {
           </Card>
 
           <Card className="p-4 border-l-4 border-l-emerald">
-            <p className="text-xs font-semibold text-muted uppercase">💵 {t('report.cashTotal')}</p>
+            <p className="text-xs font-semibold text-muted uppercase">
+              <Icon icon={Banknote} /> {t('report.cashTotal')}
+            </p>
             <p className="mt-1 font-display text-2xl font-bold text-ink">
               {formatPaise(breakdown.cash.totalPaise)}
             </p>
@@ -213,7 +226,9 @@ export function Report() {
           </Card>
 
           <Card className="p-4 border-l-4 border-l-plum">
-            <p className="text-xs font-semibold text-muted uppercase">💳 {t('report.cardTotal')}</p>
+            <p className="text-xs font-semibold text-muted uppercase">
+              <Icon icon={CreditCard} /> {t('report.cardTotal')}
+            </p>
             <p className="mt-1 font-display text-2xl font-bold text-ink">
               {formatPaise(breakdown.card.totalPaise)}
             </p>
@@ -222,7 +237,7 @@ export function Report() {
 
           <Card className="p-4 bg-sand/30 border-l-4 border-l-saffron">
             <p className="text-xs font-semibold text-muted uppercase">
-              💰 {t('report.totalCollections')}
+              <Icon icon={Wallet} /> {t('report.totalCollections')}
             </p>
             <p className="mt-1 font-display text-2xl font-bold text-gold-deep">
               {formatPaise(breakdown.totalCollectionsPaise)}
@@ -283,7 +298,7 @@ export function Report() {
               )}
               onClick={() => setAnalyticsTab('products')}
             >
-              📦 {t('report.productAnalytics')}
+              <Icon icon={Package} /> {t('report.productAnalytics')}
             </button>
             <button
               type="button"
@@ -295,7 +310,7 @@ export function Report() {
               )}
               onClick={() => setAnalyticsTab('inventory')}
             >
-              🏷 {t('report.inventoryAnalytics')}
+              <Icon icon={Tag} /> {t('report.inventoryAnalytics')}
             </button>
           </div>
         </div>
@@ -402,9 +417,15 @@ export function Report() {
                   <tr>
                     <th className="px-5 py-3">{t('report.cashierName')}</th>
                     <th className="px-4 py-3 text-center">{t('report.transactions')}</th>
-                    <th className="px-4 py-3 text-right">📱 {t('counter.upi')}</th>
-                    <th className="px-4 py-3 text-right">💵 {t('counter.cash')}</th>
-                    <th className="px-4 py-3 text-right">💳 {t('counter.card')}</th>
+                    <th className="px-4 py-3 text-right">
+                      <Icon icon={QrCode} /> {t('counter.upi')}
+                    </th>
+                    <th className="px-4 py-3 text-right">
+                      <Icon icon={Banknote} /> {t('counter.cash')}
+                    </th>
+                    <th className="px-4 py-3 text-right">
+                      <Icon icon={CreditCard} /> {t('counter.card')}
+                    </th>
                     <th className="px-4 py-3 text-right">{t('report.totalCollections')}</th>
                     <th className="px-5 py-3 text-right">{t('report.lastTransaction')}</th>
                   </tr>
@@ -446,7 +467,7 @@ export function Report() {
             to="/shop/payments?tab=history"
             className="text-xs font-semibold text-gold-deep hover:underline"
           >
-            📊 {t('payments.tabHistory')} →
+            <Icon icon={FileSpreadsheet} /> {t('payments.tabHistory')} →
           </Link>
         </div>
         <Card className="overflow-hidden">
@@ -489,15 +510,15 @@ export function Report() {
                       <td className="px-4 py-3 text-xs">
                         {s.verificationSource === 'cashier_confirmed' ? (
                           <span className="text-emerald font-medium">
-                            ✓ {t('report.verified.cashier')}
+                            <Icon icon={Check} /> {t('report.verified.cashier')}
                           </span>
                         ) : s.verificationSource === 'cash_received' ? (
                           <span className="text-emerald font-medium">
-                            ✓ {t('report.verified.cash')}
+                            <Icon icon={Check} /> {t('report.verified.cash')}
                           </span>
                         ) : s.verificationSource === 'terminal_approved' ? (
                           <span className="text-emerald font-medium">
-                            ✓ {t('report.verified.terminal')}
+                            <Icon icon={Check} /> {t('report.verified.terminal')}
                           </span>
                         ) : (
                           <span className="text-muted">{t('report.verified.direct')}</span>

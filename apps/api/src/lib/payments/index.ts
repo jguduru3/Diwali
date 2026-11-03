@@ -1,15 +1,17 @@
 import { env } from '../env';
 import { HttpError } from '../errors';
 import { mockProvider } from './mock';
+import { razorpayProvider } from './razorpay';
 import type { PaymentProvider } from './types';
 
 export * from './types';
 
-/**
- * Registered adapters. A real, RBI-authorised provider is added here as another
- * adapter after the compliance review (SPEC_V2 §5, §9).
- */
+/** Registered adapters: Razorpay (live) and the mock (dev and tests only). */
 const providers: Record<string, () => PaymentProvider> = {
+  razorpay: () => {
+    env.razorpay(); // throws when the keys are missing
+    return razorpayProvider;
+  },
   mock: () => {
     env.mockPaymentSecret(); // throws in prod
     return mockProvider;

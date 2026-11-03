@@ -21,6 +21,8 @@ import { useShop, useShopItems } from '../../lib/queries';
 import { ShopFilters } from './ShopFilters';
 import { NO_FILTERS, type ShopFilterState } from './shopFilterState';
 import { usePlanDetails } from './usePlanDetails';
+import { Lock, Star, Zap } from 'lucide-react';
+import { Icon } from '../../components/Icon';
 
 /** Large image and full details for one product, as a native modal dialog (focus trap,
  *  Esc to close). A bottom sheet on phones, a centred card on wider screens. */
@@ -194,7 +196,7 @@ export function ShopPage() {
   if (shop.error) {
     return (
       <EmptyState
-        icon="🔒"
+        icon={<Icon icon={Lock} className="h-6 w-6" />}
         title={t('shopPage.notListedTitle')}
         body={t('shopPage.notListedBody')}
         action={
@@ -246,7 +248,7 @@ export function ShopPage() {
         </div>
         <div className="mt-5 flex flex-wrap items-center gap-3 text-sm">
           <span className="inline-flex items-center rounded-full bg-white px-4 py-1.5 font-semibold text-night">
-            ⚡ {t('home.expressPickup')}
+            <Icon icon={Zap} /> {t('home.expressPickup')}
           </span>
           {mapUrl && (
             <>
@@ -348,7 +350,7 @@ export function ShopPage() {
                   <GreenBadge cert={item.greenCert} />
                   {item.isStandard && (
                     <Badge tone="emerald" className="bg-emerald/15 text-emerald font-semibold">
-                      ★ {t('shopPage.standardProduct')}
+                      <Icon icon={Star} /> {t('shopPage.standardProduct')}
                     </Badge>
                   )}
                   {item.isSoldOut && <Badge tone="muted">{t('shopPage.soldOut')}</Badge>}

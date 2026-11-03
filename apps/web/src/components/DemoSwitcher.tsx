@@ -10,18 +10,31 @@ import {
 } from '@pataka/shared';
 import { useMe } from '../auth/useAuth';
 import { useDemoInfo, useDemoLogin } from '../lib/queries';
+import {
+  BriefcaseBusiness,
+  CreditCard,
+  Megaphone,
+  Package,
+  ReceiptText,
+  ShieldCheck,
+  Store,
+  TrafficCone,
+  User,
+  type LucideIcon,
+} from 'lucide-react';
+import { Icon } from './Icon';
 import { Button, cx } from './ui';
 
-const ROLE_ICON: Record<string, string> = {
-  customer: '🪔',
-  shop_owner: '🏪',
-  shop_staff: '🧾',
-  shop_packer: '📦',
-  shop_cashier: '💳',
-  marshal: '🚦',
-  admin: '✦',
-  agent: '🧭',
-  influencer: '📣',
+const ROLE_ICON: Record<string, LucideIcon> = {
+  customer: User,
+  shop_owner: Store,
+  shop_staff: ReceiptText,
+  shop_packer: Package,
+  shop_cashier: CreditCard,
+  marshal: TrafficCone,
+  admin: ShieldCheck,
+  agent: BriefcaseBusiness,
+  influencer: Megaphone,
 };
 
 /** Agents and influencers are customer accounts with a growth profile: shown as their own kind. */
@@ -70,7 +83,7 @@ export function DemoAccountList({
             className="group flex w-full items-center gap-3 rounded-2xl border border-line bg-white p-3 text-left transition hover:border-gold hover:shadow-[var(--shadow-card)] disabled:opacity-50"
           >
             <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-sand text-xl group-hover:bg-gold-light/50">
-              {ROLE_ICON[kindOf(a)] ?? '•'}
+              <Icon icon={ROLE_ICON[kindOf(a)] ?? User} className="h-5 w-5" />
             </span>
             <span className="min-w-0">
               <span className="block text-sm font-bold text-ink">{t(`roles.${kindOf(a)}`)}</span>

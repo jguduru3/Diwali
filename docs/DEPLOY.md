@@ -66,8 +66,18 @@ still reachable only through Front Door.
    | `JWT_SECRET`               | 48+ random characters (`openssl rand -base64 48`)                   |
    | `MERCHANT_SECRETS_KEY`     | 48+ random characters; encrypts merchants' YouPI-PG webhook secrets |
    | `MSG91_AUTH_KEY`           | MSG91 auth key (prod; may be empty in dev)                          |
+   | `RAZORPAY_KEY_ID`          | Razorpay key ID: `rzp_live_…` for prod (`rzp_test_…` is refused)    |
+   | `RAZORPAY_KEY_SECRET`      | Razorpay key secret                                                 |
+   | `RAZORPAY_WEBHOOK_SECRET`  | secret of the webhook below                                         |
 
    Variable `MSG91_TEMPLATE_ID`: the DLT-approved OTP template id (must contain `##otp##`/`otp`).
+
+   **Razorpay** (the ₹30 order fee and the ₹1,999 + GST subscription; sale money never goes
+   through it, G3): Dashboard → Settings → API keys for the key ID and secret; Settings →
+   Webhooks → add `https://<domain>/api/payments/webhook/razorpay` with the events
+   `payment_link.paid`, `payment_link.expired`, `payment_link.cancelled`, `refund.processed` and
+   `refund.failed`, and copy its secret. Customers and owners pay on Razorpay's hosted page and
+   come back to their order or review page.
 
 4. **Run the workflows** in order: Actions → _Deploy infrastructure_ → Run (env `dev`), then
    _Deploy API (backend)_ and _Deploy web (frontend)_. The summaries print the public URL.
@@ -94,12 +104,25 @@ still reachable only through Front Door.
 | Demo seed data                 | yes                     | no                        |
 
 Both flags are forced off for `prod` in Bicep **and** ignored by the API when `APP_ENV=prod`.
+`pnpm db:seed` refuses to run with `APP_ENV=prod` or against an Azure database (set
+`SEED_ALLOW_AZURE=true` only for the dev environment). The mock payment provider and the
+simulated counter UPI are refused in prod.
+
+**Production readiness check:** in prod `/api/health` answers `503 {"config": false}` until every
+live setting is in place (no demo or dev OTP, JWT and merchant keys of 32+ characters, https
+`PUBLIC_ORIGIN`, MSG91 keys, `PAYMENT_PROVIDER=razorpay` with live keys, storage account). The
+deploy workflow's smoke test calls `/api/health`, so a deploy with a missing secret fails there,
+and the missing setting names are written to Application Insights (`[config]`).
 The dev site is public: treat it as a demo and never put real customer data in it.
 
 ## Before going live (checklist)
 
 - [ ] Written legal opinion on the plan-list + slot model (SPEC §17).
 - [ ] MSG91 DLT sender + OTP template approved; `MSG91_AUTH_KEY` and template id set; test an OTP.
+- [ ] Razorpay account activated (KYC), live keys and webhook secret in GitHub secrets, webhook
+      added; pay one ₹2,359 subscription and refund one ₹30 fee to check the whole loop.
+- [ ] `/api/health` on prod returns `{"ok":true,"db":true,"config":true}`.
+- [ ] Peak load test on staging with `loadtest/k6-peak.js` (docs/LOAD_TEST_REPORT.md).
 - [ ] Partner shops onboarded: licence photos uploaded and verified in Admin → Licences.
 - [ ] Holding-bay positions agreed with fire officer/police; grounds' bay counts and gate notes set.
 - [ ] Telugu strings reviewed by a native speaker.

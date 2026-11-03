@@ -7,6 +7,8 @@ import { dayIST } from '../../lib/format';
 import { useAdminDocuments, useDecideDocument } from '../../lib/queries';
 import { shownStatus } from '../../lib/documents';
 import { DocStatusBadge } from '../shop/Documents';
+import { Check } from 'lucide-react';
+import { Icon } from '../../components/Icon';
 
 type Filter = DocStatus | '';
 
@@ -32,7 +34,12 @@ export function AdminDocuments() {
       />
       {list.isPending && <Spinner label={t('common.loading')} />}
       <ErrorText error={list.error ?? decide.error} />
-      {list.data?.length === 0 && <EmptyState icon="✓" title={t('documents.adminEmpty')} />}
+      {list.data?.length === 0 && (
+        <EmptyState
+          icon={<Icon icon={Check} className="h-6 w-6" />}
+          title={t('documents.adminEmpty')}
+        />
+      )}
       <ul className="grid gap-4 lg:grid-cols-2">
         {list.data?.map((d) => (
           <Card as="li" key={d.id} className="space-y-4 p-5">
@@ -92,7 +99,7 @@ export function AdminDocuments() {
                         decide.mutate({ id: d.id, decision: 'verify', notes: notes[d.id] })
                       }
                     >
-                      ✓ {t('admin.verify')}
+                      <Icon icon={Check} /> {t('admin.verify')}
                     </Button>
                   )}
                   <Button

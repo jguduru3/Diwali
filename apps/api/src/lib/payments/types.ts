@@ -28,9 +28,14 @@ export interface PaymentProvider {
     idempotencyKey: string;
     amountPaise: number;
     reference: string;
+    /** app path the payer returns to after paying, e.g. /orders/<id> */
+    returnPath?: string;
   }): Promise<{ checkoutId: string; url: string }>;
-  /** Throws WebhookSignatureError unless the raw body carries a valid signature. */
-  verifyWebhook(rawBody: string, headers: HeaderReader): ProviderEvent;
+  /**
+   * Throws WebhookSignatureError unless the raw body carries a valid signature. A valid event
+   * the platform does not act on returns null (acknowledged, so the provider stops retrying).
+   */
+  verifyWebhook(rawBody: string, headers: HeaderReader): ProviderEvent | null;
   /** Asks the provider to refund a captured payment. The outcome arrives as an event. */
   refund(input: {
     paymentId: string;

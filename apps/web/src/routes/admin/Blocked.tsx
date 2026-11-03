@@ -3,6 +3,8 @@ import { ErrorText } from '../../components/ErrorText';
 import { Button, Card, EmptyState, Spinner } from '../../components/ui';
 import { dayIST } from '../../lib/format';
 import { useBlocked, useUnblock } from '../../lib/queries';
+import { Check } from 'lucide-react';
+import { Icon } from '../../components/Icon';
 
 /** Numbers blocked for misuse cannot place orders; admins can lift the block. */
 export function Blocked() {
@@ -12,7 +14,13 @@ export function Blocked() {
   if (list.isPending) return <Spinner label={t('common.loading')} />;
   if (list.error) return <ErrorText error={list.error} />;
   if (!list.data.length)
-    return <EmptyState icon="✓" title={t('admin.noneBlocked')} body={t('admin.blockedHelp')} />;
+    return (
+      <EmptyState
+        icon={<Icon icon={Check} className="h-6 w-6" />}
+        title={t('admin.noneBlocked')}
+        body={t('admin.blockedHelp')}
+      />
+    );
   return (
     <ul className="grid gap-3">
       {list.data.map((u) => (

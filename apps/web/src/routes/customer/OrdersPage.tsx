@@ -14,6 +14,8 @@ import { OrderStatusChip } from '../../components/OrderStatusChip';
 import { ButtonLink, Card, EmptyState, PageTitle, Spinner, cx } from '../../components/ui';
 import { dayIST, timeIST } from '../../lib/format';
 import { useMyOrders } from '../../lib/queries';
+import { ReceiptText } from 'lucide-react';
+import { Icon } from '../../components/Icon';
 
 const when = (iso: string) => `${dayIST(iso)}, ${timeIST(iso)}`;
 
@@ -162,7 +164,7 @@ export function OrdersPage() {
       <ErrorText error={orders.error} />
       {orders.data?.length === 0 && (
         <EmptyState
-          icon="🧾"
+          icon={<Icon icon={ReceiptText} className="h-6 w-6" />}
           title={t('order.noneTitle')}
           body={t('order.noneBody')}
           action={<ButtonLink to="/">{t('home.cta')}</ButtonLink>}

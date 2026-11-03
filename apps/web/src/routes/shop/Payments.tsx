@@ -34,6 +34,8 @@ import {
   useShopScope,
   useUploadPaymentQr,
 } from '../../lib/queries';
+import { Check, Copy, FileSpreadsheet, Printer, QrCode, Settings, Wallet, X } from 'lucide-react';
+import { Icon } from '../../components/Icon';
 
 /**
  * How a merchant takes counter payments: PhonePe/UPI QR code, UPI through
@@ -203,7 +205,7 @@ export function PaymentSettingsForm({ shopId }: { shopId?: string }) {
                   disabled={uploadQr.isPending}
                   onClick={() => fileInputRef.current?.click()}
                 >
-                  {uploadQr.isPending ? t('common.loading') : `📷 ${t('payments.qrReplaceBtn')}`}
+                  {uploadQr.isPending ? t('common.loading') : `${t('payments.qrReplaceBtn')}`}
                 </Button>
                 <Button
                   type="button"
@@ -213,7 +215,7 @@ export function PaymentSettingsForm({ shopId }: { shopId?: string }) {
                   disabled={deleteQr.isPending}
                   onClick={handleDeleteQr}
                 >
-                  {deleteQr.isPending ? t('common.loading') : `🗑 ${t('payments.qrDeleteBtn')}`}
+                  {deleteQr.isPending ? t('common.loading') : `${t('payments.qrDeleteBtn')}`}
                 </Button>
               </div>
 
@@ -223,7 +225,7 @@ export function PaymentSettingsForm({ shopId }: { shopId?: string }) {
         ) : (
           <div className="rounded-2xl border border-dashed border-line bg-sand/40 p-6 text-center">
             <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-gold/20 text-2xl">
-              📱
+              <Icon icon={QrCode} />
             </div>
             <p className="text-sm font-medium text-ink">{t('payments.qrNotConfigured')}</p>
             <p className="mx-auto mt-1 max-w-md text-xs text-muted">
@@ -245,7 +247,7 @@ export function PaymentSettingsForm({ shopId }: { shopId?: string }) {
                 disabled={uploadQr.isPending}
                 onClick={() => fileInputRef.current?.click()}
               >
-                {uploadQr.isPending ? t('common.loading') : `📤 ${t('payments.qrUploadBtn')}`}
+                {uploadQr.isPending ? t('common.loading') : `${t('payments.qrUploadBtn')}`}
               </Button>
             </div>
             <p className="mt-2 text-xs text-muted">{t('payments.qrUploadPrompt')}</p>
@@ -487,7 +489,7 @@ export function PaymentHistory() {
 
         {/* Clear separation of merchant funds vs ₹30 fee notice */}
         <Notice tone="plum" className="text-xs">
-          💰 {t('payments.merchantRevenueNotice')}
+          <Icon icon={Wallet} /> {t('payments.merchantRevenueNotice')}
         </Notice>
       </section>
 
@@ -523,7 +525,7 @@ export function PaymentHistory() {
           </div>
 
           <Button variant="secondary" size="sm" onClick={handleExport}>
-            📊 {t('report.exportExcel')}
+            <Icon icon={FileSpreadsheet} /> {t('report.exportExcel')}
           </Button>
         </div>
 
@@ -582,9 +584,9 @@ export function PaymentHistory() {
               className="mt-0 min-h-10 text-sm"
             >
               <option value="">{t('payments.allMethods')}</option>
-              <option value="upi">📱 {t('counter.phonepeQr')}</option>
-              <option value="cash">💵 {t('counter.cash')}</option>
-              <option value="card">💳 {t('counter.card')}</option>
+              <option value="upi">{t('counter.phonepeQr')}</option>
+              <option value="cash">{t('counter.cash')}</option>
+              <option value="card">{t('counter.card')}</option>
             </Select>
           </Field>
 
@@ -667,7 +669,7 @@ export function PaymentHistory() {
                             className="text-gold-deep hover:underline text-[11px]"
                             title={t('payments.copyId')}
                           >
-                            {copiedId === txId ? '✓' : '⧉'}
+                            <Icon icon={copiedId === txId ? Check : Copy} />
                           </button>
                         </div>
                       </td>
@@ -828,7 +830,7 @@ export function PaymentHistory() {
                     className="text-xs font-semibold text-gold-deep hover:underline"
                   >
                     {copiedId === (selectedTx.transactionId || selectedTx.id)
-                      ? `✓ ${t('payments.copied')}`
+                      ? `${t('payments.copied')}`
                       : t('payments.copyId')}
                   </button>
                 </div>
@@ -839,7 +841,7 @@ export function PaymentHistory() {
                 onClick={() => setSelectedTx(null)}
                 aria-label={t('common.cancel')}
               >
-                ✕
+                <Icon icon={X} />
               </button>
             </div>
 
@@ -867,10 +869,10 @@ export function PaymentHistory() {
                 <p className="text-muted">{t('payments.method')}</p>
                 <p className="font-semibold text-ink">
                   {selectedTx.paymentMethod === 'upi'
-                    ? '📱 PhonePe QR'
+                    ? t('counter.phonepeQr')
                     : selectedTx.paymentMethod === 'cash'
-                      ? '💵 Cash'
-                      : '💳 Card'}
+                      ? t('counter.cash')
+                      : t('counter.card')}
                 </p>
               </div>
               <div>
@@ -950,7 +952,7 @@ export function PaymentHistory() {
             {/* Modal Actions */}
             <div className="flex flex-wrap items-center justify-end gap-3 pt-2">
               <Button variant="secondary" onClick={() => window.print()}>
-                🖨 {t('payments.printReceipt')}
+                <Icon icon={Printer} /> {t('payments.printReceipt')}
               </Button>
               <Button onClick={() => setSelectedTx(null)}>{t('common.close')}</Button>
             </div>
@@ -996,7 +998,7 @@ export function Payments() {
                 : 'text-muted hover:text-ink hover:bg-sand',
             )}
           >
-            📊 {t('payments.tabHistory')}
+            <Icon icon={FileSpreadsheet} /> {t('payments.tabHistory')}
           </button>
           <button
             type="button"
@@ -1008,7 +1010,7 @@ export function Payments() {
                 : 'text-muted hover:text-ink hover:bg-sand',
             )}
           >
-            ⚙️ {t('payments.tabSettings')}
+            <Icon icon={Settings} /> {t('payments.tabSettings')}
           </button>
         </div>
       </div>

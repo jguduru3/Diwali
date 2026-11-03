@@ -7,6 +7,8 @@ import { ErrorText } from '../../components/ErrorText';
 import { Badge, Button, ButtonLink, Card, EmptyState, cx } from '../../components/ui';
 import { daysToDiwali, dayIST } from '../../lib/format';
 import { useAreas, useShops } from '../../lib/queries';
+import { Check, Leaf, Store, Zap } from 'lucide-react';
+import { Icon } from '../../components/Icon';
 
 const ShopMap = lazy(() => import('../../components/ShopMap'));
 
@@ -162,16 +164,20 @@ function ShopCard({ shop }: { shop: ShopSummary }) {
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
         <Badge tone="gold">
-          ✓{' '}
+          <Icon icon={Check} />{' '}
           {t('home.licenceBadge', {
             type: shop.licence.licenceType,
             date: dayIST(shop.licence.validTo),
           })}
         </Badge>
-        <Badge tone="emerald">🌿 {t('home.greenOnly')}</Badge>
+        <Badge tone="emerald">
+          <Icon icon={Leaf} /> {t('home.greenOnly')}
+        </Badge>
       </div>
       <div className="mt-5 flex items-end justify-between gap-3 border-t border-line/70 pt-4">
-        <p className="text-sm font-semibold text-gold-deep">⚡ {t('home.expressPickup')}</p>
+        <p className="text-sm font-semibold text-gold-deep">
+          <Icon icon={Zap} /> {t('home.expressPickup')}
+        </p>
         <span
           aria-hidden
           className="font-semibold text-plum transition group-hover:translate-x-0.5"
@@ -329,12 +335,16 @@ export function Home() {
             {visible?.length === 0 &&
               (nearMe ? (
                 <EmptyState
-                  icon="🪔"
+                  icon={<Icon icon={Store} className="h-6 w-6" />}
                   title={t('home.noNearTitle', { km: NEAR_KM })}
                   body={t('home.noNearBody')}
                 />
               ) : (
-                <EmptyState icon="🪔" title={t('home.noShopsTitle')} body={t('home.noShopsBody')} />
+                <EmptyState
+                  icon={<Icon icon={Store} className="h-6 w-6" />}
+                  title={t('home.noShopsTitle')}
+                  body={t('home.noShopsBody')}
+                />
               ))}
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
               {visible?.slice(0, shown).map((s) => (

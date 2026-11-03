@@ -70,7 +70,7 @@ describe('G8 — safety notice on the pickup QR', () => {
     expect(screen.getByRole('img', { name: 'Pickup QR for order K7Q-2M9' })).toBeInTheDocument();
     const notice = screen.getByTestId('safety-notice');
     expect(notice.textContent).toMatchInlineSnapshot(
-      `"🪔Green crackers only. Burst only between 8 pm and 10 pm on Diwali, as per Supreme Court orders. Keep children supervised."`,
+      `"Green crackers only. Burst only between 8 pm and 10 pm on Diwali, as per Supreme Court orders. Keep children supervised."`,
     );
   });
 });

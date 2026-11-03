@@ -608,6 +608,7 @@ export async function startFeePayment(
     idempotencyKey,
     amountPaise: order.feePaise,
     reference: formatOrderCode(order.code),
+    returnPath: `/orders/${order.id}`,
   });
   const [pay] = await db
     .insert(feePayments)
@@ -882,7 +883,7 @@ export async function processFeeWebhook(
   headers: HeaderReader,
 ) {
   const provider = providerByName(providerName);
-  let event: ProviderEvent;
+  let event: ProviderEvent | null;
   try {
     event = provider.verifyWebhook(rawBody, headers);
   } catch (err) {
@@ -891,6 +892,7 @@ export async function processFeeWebhook(
     }
     throw err;
   }
+  if (!event) return 'ignored';
   const result = await applyFeeEvent(db, provider.name, event, rawBody);
   // Paid after the order closed (e.g. cancelled while paying): give it back.
   if (result.outcome === 'captured_order_closed' && result.orderId) {

@@ -5,6 +5,8 @@ import { Button, Card, EmptyState, Input, Segmented, Spinner } from '../../compo
 import { dayIST } from '../../lib/format';
 import { useAdminLicences, useDecideLicence } from '../../lib/queries';
 import { LicenceBadge } from '../shop/Licence';
+import { Check } from 'lucide-react';
+import { Icon } from '../../components/Icon';
 
 type Filter = 'pending' | 'verified' | 'rejected' | 'expired' | '';
 
@@ -30,7 +32,12 @@ export function Licences() {
       />
       {list.isPending && <Spinner label={t('common.loading')} />}
       <ErrorText error={list.error ?? decide.error} />
-      {list.data?.length === 0 && <EmptyState icon="✓" title={t('admin.noLicences')} />}
+      {list.data?.length === 0 && (
+        <EmptyState
+          icon={<Icon icon={Check} className="h-6 w-6" />}
+          title={t('admin.noLicences')}
+        />
+      )}
       <ul className="grid gap-4 lg:grid-cols-2">
         {list.data?.map((l) => (
           <Card as="li" key={l.id} className="overflow-hidden">
@@ -83,7 +90,7 @@ export function Licences() {
                         decide.mutate({ id: l.id, decision: 'verify', notes: notes[l.id] })
                       }
                     >
-                      ✓ {t('admin.verify')}
+                      <Icon icon={Check} /> {t('admin.verify')}
                     </Button>
                     <Button
                       variant="danger"
