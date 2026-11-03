@@ -126,7 +126,7 @@ export function DemoSwitcher() {
       >
         <span className="h-2 w-2 animate-pulse rounded-full bg-gold" />
         <span className="hidden sm:inline">{t('demo.pill')}</span>
-        <span className="max-w-36 truncate text-white">
+        <span className="max-w-20 truncate text-white sm:max-w-36">
           {current ? t(`roles.${kindOf(current)}`) : me ? t(`roles.${me.role}`) : t('demo.pick')}
         </span>
         <span aria-hidden>▾</span>

@@ -7,7 +7,7 @@ import { ErrorText } from '../../components/ErrorText';
 import { Badge, Button, ButtonLink, Card, EmptyState, cx } from '../../components/ui';
 import { daysToDiwali, dayIST } from '../../lib/format';
 import { useAreas, useShops } from '../../lib/queries';
-import { Check, Leaf, Store, Zap } from 'lucide-react';
+import { Check, Leaf, Search, Store, Zap } from 'lucide-react';
 import { Icon } from '../../components/Icon';
 
 const ShopMap = lazy(() => import('../../components/ShopMap'));
@@ -80,11 +80,11 @@ function RotatingMessages() {
   );
 }
 
-function Hero() {
+function Hero({ query, onQuery }: { query: string; onQuery: (q: string) => void }) {
   const { t } = useTranslation();
   const days = daysToDiwali();
   return (
-    <section className="night-sky relative overflow-hidden rounded-3xl px-6 py-10 text-white shadow-[var(--shadow-lift)] sm:px-10 sm:py-14">
+    <section className="night-sky relative overflow-hidden rounded-3xl px-5 py-7 text-white shadow-[var(--shadow-lift)] sm:px-10 sm:py-12">
       <div
         aria-hidden
         className="pointer-events-none absolute -top-24 -right-24 h-72 w-72 rounded-full bg-gold/20 blur-3xl"
@@ -105,13 +105,24 @@ function Hero() {
               </Badge>
             )}
           </div>
-          <h1 className="mt-5 text-4xl leading-[1.05] font-extrabold text-white sm:text-6xl">
-            {t('home.titleA')} <span className="gold-text">{t('home.titleB')}</span>
+          <h1 className="mt-4 text-3xl leading-[1.05] font-extrabold text-white sm:text-5xl">
+            {t('home.titleA')} <span className="text-brand-300">{t('home.titleB')}</span>
           </h1>
           <RotatingMessages />
-          <div className="mt-8 flex flex-wrap gap-3">
+          <label className="mt-6 flex max-w-xl items-center gap-3 rounded-full bg-white px-4 text-ink shadow-[var(--shadow-lift)]">
+            <Icon icon={Search} className="h-5 w-5 text-muted" />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => onQuery(e.target.value)}
+              placeholder={t('home.search')}
+              aria-label={t('home.search')}
+              className="min-h-12 w-full bg-transparent text-[15px] font-medium outline-none placeholder:text-subtle"
+            />
+          </label>
+          <div className="mt-5 flex flex-wrap gap-3">
             <a href="#shops" className="contents">
-              <span className="inline-flex min-h-14 items-center rounded-xl bg-brand px-7 font-semibold text-night">
+              <span className="inline-flex min-h-12 items-center rounded-full bg-white px-6 font-bold text-plum">
                 {t('home.cta')}
               </span>
             </a>
@@ -198,6 +209,7 @@ export function Home() {
   const [locError, setLocError] = useState(false);
   const [locating, setLocating] = useState(false);
   const [nearMe, setNearMe] = useState(false);
+  const [query, setQuery] = useState('');
   const { data: areas } = useAreas();
   const shops = useShops({
     area: nearMe ? undefined : area || undefined,
@@ -207,9 +219,10 @@ export function Home() {
   // Thousands of shops can be listed; cards render in pages so phones stay fast (the map shows all).
   const [shown, setShown] = useState(PAGE);
   useEffect(() => setShown(PAGE), [area, nearMe]);
-  const visible = nearMe
-    ? shops.data?.filter((s) => s.distanceKm != null && s.distanceKm <= NEAR_KM)
-    : shops.data;
+  const q = query.trim().toLowerCase();
+  const visible = (
+    nearMe ? shops.data?.filter((s) => s.distanceKm != null && s.distanceKm <= NEAR_KM) : shops.data
+  )?.filter((s) => !q || `${s.name} ${s.area}`.toLowerCase().includes(q));
 
   // `auto` is the attempt made when the app opens: a refusal there stays quiet, since the
   // customer didn't press anything and can still pick an area or tap "Use my location".
@@ -257,7 +270,7 @@ export function Home() {
 
   return (
     <div className="space-y-10">
-      <Hero />
+      <Hero query={query} onQuery={setQuery} />
 
       <KitsStrip />
 

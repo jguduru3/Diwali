@@ -17,11 +17,11 @@ type Variant = 'primary' | 'dark' | 'secondary' | 'ghost' | 'danger' | 'success'
 type Size = 'md' | 'lg' | 'sm';
 
 const base =
-  'inline-flex items-center justify-center gap-2 rounded-xl font-semibold transition-colors duration-150 disabled:pointer-events-none disabled:opacity-45 select-none';
+  'inline-flex items-center justify-center gap-2 rounded-full font-bold transition-colors duration-150 disabled:pointer-events-none disabled:opacity-45 select-none';
 const variants: Record<Variant, string> = {
   primary: 'bg-plum text-white hover:bg-plum-2',
   dark: 'bg-night text-white hover:bg-plum-2',
-  secondary: 'border border-line-strong bg-white text-ink hover:bg-ivory',
+  secondary: 'border border-plum/40 bg-white text-plum hover:bg-brand-050',
   ghost: 'text-plum hover:bg-brand-050',
   danger: 'bg-danger text-white hover:brightness-110',
   success: 'bg-emerald text-white hover:brightness-110',
@@ -96,7 +96,7 @@ export function Badge({
   return (
     <span
       className={cx(
-        'inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-semibold ring-1 ring-inset',
+        'inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-semibold ring-1 ring-inset',
         tones[tone],
         className,
       )}

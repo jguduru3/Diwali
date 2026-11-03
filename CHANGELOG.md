@@ -1,5 +1,17 @@
 # Changelog
 
+## Quick-commerce look (2026-11-03)
+
+- **Design system switched** to a quick-commerce style modelled on Zepto's app (owner's
+  request): one deep purple brand with lilac tints, white cards with soft shadows, pill buttons,
+  12–20px radii. Token names are unchanged, so every screen picks it up.
+- **Phones get an app-style tab bar** (Shops, Orders, the person's work area, Account) fixed at
+  the bottom; the header is one compact row. Desktop keeps the top navigation.
+- **Home:** a compact purple header with a search box that filters shops by name or area.
+- **Shop page:** products in an image-first grid (2 columns on phones, up to 4 on desktop)
+  with the price, strike-through MRP and a "% off" tag, and an outlined **ADD** pill that turns
+  into the − n + stepper.
+
 ## Gig workers paid directly; referral network and wallets removed (2026-11-03)
 
 - **Owner's decision:** no referral network, influencer program, customer credit, credit

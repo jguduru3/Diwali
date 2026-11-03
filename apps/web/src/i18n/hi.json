@@ -28,7 +28,8 @@
     "language": "भाषा बदलें",
     "signIn": "साइन इन",
     "account": "मेरा खाता",
-    "skip": "सामग्री पर जाएँ"
+    "skip": "सामग्री पर जाएँ",
+    "tabs": "त्वरित नेविगेशन"
   },
   "languages": {
     "title": "भाषा",
@@ -139,7 +140,8 @@
     "noShopsTitle": "यहाँ अभी कोई लाइसेंस वाली दुकान नहीं है",
     "noShopsBody": "कोई और इलाका आज़माएँ। लाइसेंस जाँच के बाद दुकानें दिखती हैं।",
     "showing": "{{total}} में से {{shown}} दुकानें दिख रही हैं",
-    "showMore": "और दुकानें दिखाएँ"
+    "showMore": "और दुकानें दिखाएँ",
+    "search": "दुकानें और इलाके खोजें"
   },
   "shopPage": {
     "itemNo": "आइटम #{{no}}",
@@ -189,7 +191,8 @@
     "showResults_one": "{{count}} उत्पाद दिखाएँ",
     "showResults_other": "{{count}} उत्पाद दिखाएँ",
     "removeFilter": "फ़िल्टर हटाएँ: {{name}}",
-    "kiloLine": "{{weight}} पैक · {{rate}}/किलो"
+    "kiloLine": "{{weight}} पैक · {{rate}}/किलो",
+    "percentOff": "{{percent}}% छूट"
   },
   "plan": {
     "title": "आपका ऑर्डर",

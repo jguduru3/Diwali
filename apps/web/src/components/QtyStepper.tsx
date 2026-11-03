@@ -21,7 +21,7 @@ export function QtyStepper({
         disabled={disabled}
         onClick={() => onChange(1)}
         aria-label={t('shopPage.add', { name })}
-        className="inline-flex min-h-12 items-center gap-1.5 rounded-2xl bg-plum px-5 font-semibold text-white transition hover:bg-plum-2 active:scale-95 disabled:bg-line disabled:text-muted"
+        className="inline-flex min-h-9 items-center gap-1 rounded-full border border-plum bg-white px-4 text-[13px] font-bold tracking-wide text-plum uppercase transition hover:bg-brand-050 active:scale-95 disabled:border-line disabled:bg-ivory disabled:text-muted"
       >
         <span aria-hidden className="text-lg leading-none">
           +
@@ -31,23 +31,23 @@ export function QtyStepper({
     );
   }
   const btn =
-    'grid h-12 w-12 place-items-center rounded-2xl text-xl font-bold transition active:scale-90 disabled:opacity-40';
+    'grid h-9 w-9 place-items-center rounded-full text-lg font-bold transition active:scale-90 disabled:opacity-40';
   return (
-    <div className="inline-flex items-center gap-1 rounded-2xl bg-gold-light/40 p-0.5 ring-1 ring-gold/40">
+    <div className="inline-flex items-center rounded-full bg-plum text-white">
       <button
         type="button"
-        className={cx(btn, 'text-plum hover:bg-white/70')}
+        className={cx(btn, 'hover:bg-white/15')}
         onClick={() => onChange(qty - 1)}
         aria-label={t('shopPage.less', { name })}
       >
         −
       </button>
-      <span className="min-w-8 text-center font-display text-lg font-semibold" aria-live="polite">
+      <span className="min-w-7 text-center font-display text-base font-bold" aria-live="polite">
         {qty}
       </span>
       <button
         type="button"
-        className={cx(btn, 'text-plum hover:bg-white/70')}
+        className={cx(btn, 'hover:bg-white/15')}
         onClick={() => onChange(qty + 1)}
         disabled={qty >= MAX_LINE_QTY || disabled}
         aria-label={t('shopPage.more', { name })}

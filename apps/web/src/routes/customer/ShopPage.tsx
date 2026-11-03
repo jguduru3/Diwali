@@ -287,34 +287,50 @@ export function ShopPage() {
         </Notice>
       )}
 
-      <ul className="mt-2 grid gap-3 md:grid-cols-2">
+      <ul className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
         {visible.map((item) => {
           const qty = plan.qtyOf(item.itemNo);
           const name = itemName(item);
+          const off =
+            item.effectivePricePaise < item.pricePaise
+              ? Math.round((1 - item.effectivePricePaise / item.pricePaise) * 100)
+              : 0;
           return (
             <Card
               as="li"
               key={item.id}
               className={cx(
-                'relative flex items-stretch gap-4 p-4 transition hover:shadow-[var(--shadow-lift)]',
+                'relative flex flex-col overflow-hidden p-0 transition hover:shadow-[var(--shadow-lift)]',
                 item.isSoldOut && 'opacity-70 grayscale',
-                qty > 0 && 'ring-2 ring-gold/60',
+                qty > 0 && 'ring-2 ring-plum/50',
               )}
             >
-              {item.imageUrl ? (
-                <img
-                  src={item.imageUrl}
-                  alt=""
-                  loading="lazy"
-                  className="min-h-20 w-20 shrink-0 self-stretch rounded-2xl object-cover ring-1 ring-line"
-                />
-              ) : (
-                <div className="grid min-h-20 w-20 shrink-0 place-items-center self-stretch rounded-2xl bg-brand-050 font-display text-2xl font-extrabold text-plum">
-                  #{item.itemNo}
-                </div>
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="font-semibold leading-snug">
+              <div className="relative aspect-square w-full bg-brand-050">
+                {item.imageUrl ? (
+                  <img
+                    src={item.imageUrl}
+                    alt=""
+                    loading="lazy"
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="grid h-full w-full place-items-center font-display text-3xl font-extrabold text-brand-300">
+                    #{item.itemNo}
+                  </div>
+                )}
+                {off > 0 && (
+                  <span className="absolute top-2 left-2 rounded-md bg-emerald px-1.5 py-0.5 text-[11px] font-bold text-white">
+                    {t('shopPage.percentOff', { percent: off })}
+                  </span>
+                )}
+                {item.isSoldOut && (
+                  <span className="absolute inset-x-2 bottom-2 rounded-md bg-ink/80 px-2 py-1 text-center text-[11px] font-bold text-white">
+                    {t('shopPage.soldOut')}
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-1 flex-col gap-1 p-3">
+                <p className="line-clamp-2 min-h-10 text-sm leading-5 font-semibold">
                   {/* The button's ::after covers the card, so tapping the photo or text opens
                       the details; the stepper sits above it (z-10) and still adds items. */}
                   <button
@@ -326,46 +342,45 @@ export function ShopPage() {
                     {name}
                   </button>
                 </p>
-                <p className="text-sm text-muted">{item.packDesc}</p>
-                {item.saleMode === 'kilo' && item.weightGrams != null && (
-                  <p className="text-sm font-semibold text-gold-deep">
-                    {t('shopPage.kiloLine', {
-                      weight: formatWeight(item.weightGrams),
-                      rate: formatPaise(item.pricePerKgPaise ?? 0),
-                    })}
-                  </p>
-                )}
-                <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                  <span className="font-display text-lg font-semibold">
-                    {formatPaise(item.effectivePricePaise)}
-                  </span>
-                  {item.effectivePricePaise < item.pricePaise && (
-                    <>
-                      <span className="text-sm text-muted line-through">
-                        {formatPaise(item.pricePaise)}
-                      </span>
-                      <Badge tone="saffron">{t('shopPage.offer')}</Badge>
-                    </>
-                  )}
+                <p className="truncate text-xs text-muted">
+                  {item.saleMode === 'kilo' && item.weightGrams != null
+                    ? t('shopPage.kiloLine', {
+                        weight: formatWeight(item.weightGrams),
+                        rate: formatPaise(item.pricePerKgPaise ?? 0),
+                      })
+                    : item.packDesc}
+                </p>
+                <div className="flex flex-wrap items-center gap-1">
                   <GreenBadge cert={item.greenCert} />
                   {item.isStandard && (
-                    <Badge tone="emerald" className="bg-emerald/15 text-emerald font-semibold">
+                    <Badge tone="emerald">
                       <Icon icon={Star} /> {t('shopPage.standardProduct')}
                     </Badge>
                   )}
-                  {item.isSoldOut && <Badge tone="muted">{t('shopPage.soldOut')}</Badge>}
                   {!item.isSoldOut && item.stockQty != null && item.stockQty <= 5 && (
                     <Badge tone="danger">{t('shopPage.onlyLeft', { count: item.stockQty })}</Badge>
                   )}
                 </div>
-              </div>
-              <div className="relative z-10 shrink-0 self-start">
-                <QtyStepper
-                  qty={qty}
-                  name={name}
-                  disabled={item.isSoldOut}
-                  onChange={(n) => setItemQty(item, n)}
-                />
+                <div className="mt-auto flex items-end justify-between gap-2 pt-1">
+                  <div className="min-w-0">
+                    <p className="font-display text-base leading-tight font-bold">
+                      {formatPaise(item.effectivePricePaise)}
+                    </p>
+                    {off > 0 && (
+                      <p className="text-xs text-muted line-through">
+                        {formatPaise(item.pricePaise)}
+                      </p>
+                    )}
+                  </div>
+                  <div className="relative z-10 shrink-0">
+                    <QtyStepper
+                      qty={qty}
+                      name={name}
+                      disabled={item.isSoldOut}
+                      onChange={(n) => setItemQty(item, n)}
+                    />
+                  </div>
+                </div>
               </div>
             </Card>
           );
@@ -397,7 +412,7 @@ export function ShopPage() {
       )}
 
       {plan.count > 0 && (
-        <div className="fixed inset-x-0 bottom-0 z-30 p-3 sm:p-5">
+        <div className="fixed inset-x-0 bottom-16 z-30 p-3 sm:bottom-0 sm:p-5">
           <div className="night-sky mx-auto flex max-w-3xl items-center justify-between gap-4 rounded-3xl px-5 py-4 text-white shadow-[var(--shadow-lift)] ring-1 ring-white/10">
             <div>
               <p className="text-xs font-semibold tracking-wider text-gold-light uppercase">

@@ -28,7 +28,8 @@
     "language": "Change language",
     "signIn": "Sign in",
     "account": "My account",
-    "skip": "Skip to content"
+    "skip": "Skip to content",
+    "tabs": "Quick navigation"
   },
   "languages": {
     "title": "Language",
@@ -139,7 +140,8 @@
     "noShopsTitle": "No licensed shops here yet",
     "noShopsBody": "Try another area. Shops appear once their licence has been checked.",
     "showing": "Showing {{shown}} of {{total}} shops",
-    "showMore": "Show more shops"
+    "showMore": "Show more shops",
+    "search": "Search shops and areas"
   },
   "shopPage": {
     "itemNo": "Item #{{no}}",
@@ -189,7 +191,8 @@
     "showResults_one": "Show {{count}} product",
     "showResults_other": "Show {{count}} products",
     "removeFilter": "Remove filter: {{name}}",
-    "kiloLine": "{{weight}} pack · {{rate}}/kg"
+    "kiloLine": "{{weight}} pack · {{rate}}/kg",
+    "percentOff": "{{percent}}% off"
   },
   "plan": {
     "title": "Your order",

@@ -1,50 +1,50 @@
 @import 'tailwindcss';
 
 @theme {
-  /* Better Analytics design system (v1, Oct 2026): one confident blue, Plus Jakarta Sans,
-     a 4px grid and flat cards. Token names are the app's older ones so every screen picks the
-     system up; the comment on each says which design-system token it is. Telugu and Devanagari
-     fall back to Noto Sans, which shares Jakarta's proportions. */
+  /* Quick-commerce look (Nov 2026, modelled on Zepto's app): one deep purple brand, lilac
+     tints, white cards with soft shadows, pill buttons and 12–20px radii. Token names are the
+     app's older ones so every screen picks the system up. Telugu and Devanagari fall back to
+     Noto Sans, which shares Jakarta's proportions. */
   --font-display:
     'Plus Jakarta Sans', 'Noto Sans Telugu', 'Noto Sans Devanagari', system-ui, sans-serif;
   --font-sans:
     'Plus Jakarta Sans', 'Noto Sans Telugu', 'Noto Sans Devanagari', system-ui, -apple-system,
     'Segoe UI', sans-serif;
 
-  --color-brand: #29a6f2; /* brand: logo, display type 24px+, chart series 1 */
-  --color-brand-050: #e6f4fd; /* tinted backgrounds, info banners, selected rows */
-  --color-brand-100: #c4e5fb; /* hovered selected rows, soft chips */
-  --color-brand-300: #7cc8f7; /* secondary chart series, progress tracks */
-  --color-night: #073a5c; /* brand-900: dark identity blocks (header, hero) */
-  --color-plum: #0a65a1; /* action: primary buttons, links, active tabs and toggles */
-  --color-plum-2: #08578a; /* action-hover */
-  --color-plum-3: #073a5c; /* brand-900 */
-  --color-gold: #29a6f2; /* brand */
-  --color-gold-light: #c4e5fb; /* brand-100; also text on brand-900 */
-  --color-gold-deep: #0a65a1; /* brand-700: coloured headings and labels */
+  --color-brand: #7c3aed; /* brand: logo, display accents */
+  --color-brand-050: #f3eeff; /* tinted backgrounds, info banners, selected rows */
+  --color-brand-100: #e4d8ff; /* hovered selected rows, soft chips */
+  --color-brand-300: #b798f5; /* secondary series, progress tracks */
+  --color-night: #2e0b5e; /* dark identity blocks (header, hero, sticky bars) */
+  --color-plum: #5b21b6; /* action: primary buttons, links, active tabs and toggles (8.3:1) */
+  --color-plum-2: #4c1d95; /* action-hover */
+  --color-plum-3: #2e0b5e;
+  --color-gold: #7c3aed; /* brand */
+  --color-gold-light: #e4d8ff; /* text on the dark header */
+  --color-gold-deep: #5b21b6; /* coloured headings and labels */
   --color-saffron: #a35a00; /* warning: offers, anomalies (5.2:1) */
   --color-saffron-bg: #fdf1df; /* warning-bg */
   --color-rose: #c42b2b; /* negative */
-  --color-ivory: #f5f8fb; /* surface-200: app chrome and page ground */
-  --color-sand: #e8eef4; /* surface-300: hover rows, input fills, placeholders */
-  --color-line: #d9e1e8; /* border: card outlines, dividers */
-  --color-line-strong: #7a8999; /* border-strong: input and control outlines */
-  --color-ink: #0f1b26; /* ink */
-  --color-muted: #4a5a69; /* ink-muted */
-  --color-subtle: #677685; /* ink-subtle: placeholders, timestamps */
-  --color-emerald: #157a46; /* positive */
-  --color-emerald-soft: #e3f5eb; /* positive-bg */
+  --color-ivory: #f6f4fa; /* app chrome and page ground */
+  --color-sand: #ede9f3; /* hover rows, input fills, placeholders */
+  --color-line: #e5e1ec; /* card outlines, dividers */
+  --color-line-strong: #8b829a; /* input and control outlines */
+  --color-ink: #1a1026; /* ink */
+  --color-muted: #52476a; /* ink-muted */
+  --color-subtle: #6f6584; /* ink-subtle: placeholders, timestamps */
+  --color-emerald: #15803d; /* positive: open now, savings */
+  --color-emerald-soft: #dcfce7; /* positive-bg */
   --color-danger: #c42b2b; /* negative */
   --color-danger-soft: #fce8e8; /* negative-bg */
 
-  /* radius-sm 4, radius-md 8 (buttons, inputs, menus), radius-lg 12 (cards, tiles, dialogs) */
-  --radius-xl: 8px;
-  --radius-2xl: 8px;
-  --radius-3xl: 12px;
+  /* radius-xl 12 (controls), 2xl 16 (tiles), 3xl 20 (cards, sheets) */
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-3xl: 20px;
 
-  --shadow-card: 0 1px 2px rgb(15 27 38 / 0.06); /* shadow-sm: resting cards, with border */
-  --shadow-lift: 0 12px 32px -12px rgb(15 27 38 / 0.28); /* shadow-md: popovers, dialogs */
-  --shadow-glow: 0 1px 2px rgb(15 27 38 / 0.06);
+  --shadow-card: 0 2px 8px rgb(46 11 94 / 0.06); /* resting cards */
+  --shadow-lift: 0 16px 40px -16px rgb(46 11 94 / 0.35); /* popovers, sheets, sticky bars */
+  --shadow-glow: 0 2px 8px rgb(46 11 94 / 0.06);
 
   --animate-pop-in: pop-in 140ms ease-out;
   @keyframes pop-in {
@@ -92,17 +92,22 @@
 }
 
 @layer components {
-  /* Dark identity block (brand-900), flat: the system uses no gradients. */
+  /* Dark identity block: deep purple with a soft lighter sweep, like the app's header. */
   .night-sky {
     background-color: var(--color-night);
+    background-image: linear-gradient(135deg, #3b0f78 0%, #2e0b5e 55%, #24084a 100%);
   }
   .gold-text {
     color: var(--color-brand);
   }
-  /* Flat card: surface-raised, 1px border, shadow-sm, radius-lg. */
+  /* Card: white, hairline border, soft shadow, 20px radius. */
   .card {
     @apply rounded-3xl border border-line bg-white;
     box-shadow: var(--shadow-card);
+  }
+  /* Mobile bottom navigation sits above the home indicator. */
+  .bottom-nav {
+    padding-bottom: env(safe-area-inset-bottom);
   }
   .hairline {
     @apply border-line/70;
