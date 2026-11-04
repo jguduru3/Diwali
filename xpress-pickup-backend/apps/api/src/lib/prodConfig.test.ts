@@ -31,6 +31,10 @@ afterEach(() => {
     'ORDER_CHANGED_SMS_GAP_MINUTES',
     ...EXOTEL_NAMES,
     'CALL_PROVIDER',
+    'COOKIE_SECURE',
+    'DATABASE_SSL',
+    'VAPID_PUBLIC_KEY',
+    'VAPID_PRIVATE_KEY',
   ])
     delete process.env[k];
   Object.assign(process.env, saved);
@@ -97,5 +101,26 @@ describe('production readiness', () => {
     ]);
     process.env.CALL_PROVIDER = 'log';
     expect(productionProblems()).toContain('CALL_PROVIDER=log is not allowed in prod');
+  });
+
+  it('refuses insecure cookies or database TLS off in production', () => {
+    process.env.COOKIE_SECURE = 'false';
+    process.env.DATABASE_SSL = 'false';
+    expect(productionProblems()).toEqual([
+      'COOKIE_SECURE must not be false in prod',
+      'DATABASE_SSL must not be false in prod',
+    ]);
+  });
+
+  it('push is optional, but its VAPID keys come as a pair', () => {
+    process.env.VAPID_PUBLIC_KEY = 'not-set';
+    process.env.VAPID_PRIVATE_KEY = 'not-set';
+    expect(productionProblems()).toEqual([]);
+    process.env.VAPID_PUBLIC_KEY = 'BPub';
+    expect(productionProblems()).toEqual([
+      'VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY must be set together for push notifications',
+    ]);
+    process.env.VAPID_PRIVATE_KEY = 'priv';
+    expect(productionProblems()).toEqual([]);
   });
 });

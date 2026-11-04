@@ -19,6 +19,13 @@ export function productionProblems(): string[] {
   if (value('MERCHANT_SECRETS_KEY').length < 32)
     problems.push('MERCHANT_SECRETS_KEY needs at least 32 characters');
   if (!/^https:\/\//.test(value('PUBLIC_ORIGIN'))) problems.push('PUBLIC_ORIGIN must be https://…');
+  if (value('COOKIE_SECURE') === 'false') problems.push('COOKIE_SECURE must not be false in prod');
+  if (value('DATABASE_SSL') === 'false') problems.push('DATABASE_SSL must not be false in prod');
+  // Push is optional (no keys: notifications are off), but one key without the other is a mistake.
+  if (missing('VAPID_PUBLIC_KEY') !== missing('VAPID_PRIVATE_KEY'))
+    problems.push(
+      'VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY must be set together for push notifications',
+    );
   if (missing('MSG91_AUTH_KEY') || missing('MSG91_TEMPLATE_ID'))
     problems.push('MSG91_AUTH_KEY and MSG91_TEMPLATE_ID are needed to send sign-in codes');
   if (value('SMS_PROVIDER') === 'log') problems.push('SMS_PROVIDER must be msg91 in production');
