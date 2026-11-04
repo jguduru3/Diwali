@@ -1,0 +1,94 @@
+name: Deploy API (backend)
+
+# Backend only: build apps/api, migrate the database, zip-deploy to the Function App.
+# Needs the infrastructure deployed once (deploy-infra.yml). push to main → dev; tag v* → prod.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths:
+      ['apps/api/**', 'packages/shared/**', 'pnpm-lock.yaml', '.github/workflows/deploy-api.yml']
+  workflow_dispatch:
+    inputs:
+      env:
+        description: Environment
+        type: choice
+        options: [dev, prod]
+        default: dev
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: api-${{ github.event.inputs.env || (startsWith(github.ref, 'refs/tags/v') && 'prod') || 'dev' }}
+  cancel-in-progress: false
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.env || (startsWith(github.ref, 'refs/tags/v') && 'prod') || 'dev' }}
+    env:
+      ENV: ${{ github.event.inputs.env || (startsWith(github.ref, 'refs/tags/v') && 'prod') || 'dev' }}
+      RG: rg-festive-${{ github.event.inputs.env || (startsWith(github.ref, 'refs/tags/v') && 'prod') || 'dev' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter api build
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Read infrastructure outputs
+        id: infra
+        run: |
+          az deployment group show -g "$RG" -n festive-infra --query properties.outputs -o json > outputs.json
+          for k in storageAccountName functionAppName keyVaultName postgresServerName publicUrl; do
+            echo "$k=$(jq -r ".$k.value" outputs.json)" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Database migrations + least-privilege role
+        run: |
+          IP=$(curl -s https://api.ipify.org)
+          az postgres flexible-server firewall-rule create -g "$RG" \
+            -n "${{ steps.infra.outputs.postgresServerName }}" -r "gha-${{ github.run_id }}" \
+            --start-ip-address "$IP" --end-ip-address "$IP" -o none
+          trap 'az postgres flexible-server firewall-rule delete -g "$RG" -n "${{ steps.infra.outputs.postgresServerName }}" -r "gha-${{ github.run_id }}" --yes -o none' EXIT
+          MIGRATION_URL=$(az keyvault secret show --vault-name "${{ steps.infra.outputs.keyVaultName }}" -n MIGRATION-DATABASE-URL --query value -o tsv)
+          APP_PW=$(az keyvault secret show --vault-name "${{ steps.infra.outputs.keyVaultName }}" -n APP-DB-PASSWORD --query value -o tsv)
+          echo "::add-mask::$MIGRATION_URL"
+          echo "::add-mask::$APP_PW"
+          DATABASE_URL="$MIGRATION_URL" pnpm --filter api db:migrate
+          sudo apt-get install -y -qq postgresql-client > /dev/null
+          PGSSLMODE=require psql "$MIGRATION_URL" -v ON_ERROR_STOP=1 -v app_password="$APP_PW" -f infra/db-roles.sql
+          # Demo data only in dev (licence photos go to the private blob container).
+          if [ "$ENV" = "dev" ]; then
+            DATABASE_URL="$MIGRATION_URL" STORAGE_ACCOUNT_NAME="${{ steps.infra.outputs.storageAccountName }}" pnpm --filter api db:seed
+          fi
+
+      - name: Deploy API (zip)
+        run: |
+          cd apps/api
+          mkdir -p ../../deploy
+          zip -qr ../../deploy/api.zip host.json package.json dist
+          cd ../..
+          az functionapp deployment source config-zip -g "$RG" \
+            -n "${{ steps.infra.outputs.functionAppName }}" --src deploy/api.zip -o none
+
+      - name: Smoke test
+        run: |
+          URL="${{ steps.infra.outputs.publicUrl }}"
+          for i in $(seq 1 30); do
+            if curl -fsS "$URL/api/health"; then echo; break; fi
+            echo "waiting for $URL ($i)"; sleep 20
+          done
+          curl -fsS "$URL/api/health"
+          echo "API live: $URL/api/health" >> "$GITHUB_STEP_SUMMARY"

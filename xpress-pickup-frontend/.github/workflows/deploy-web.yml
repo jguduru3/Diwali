@@ -1,0 +1,88 @@
+name: Deploy web (frontend)
+
+# Frontend only: build apps/web and upload it to the $web container (Azure Blob static website)
+# behind Front Door, then purge the cached entry files. Needs the infrastructure deployed once.
+# push to main → dev; tag v* → prod.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths:
+      ['apps/web/**', 'packages/shared/**', 'pnpm-lock.yaml', '.github/workflows/deploy-web.yml']
+  workflow_dispatch:
+    inputs:
+      env:
+        description: Environment
+        type: choice
+        options: [dev, prod]
+        default: dev
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: web-${{ github.event.inputs.env || (startsWith(github.ref, 'refs/tags/v') && 'prod') || 'dev' }}
+  cancel-in-progress: false
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.env || (startsWith(github.ref, 'refs/tags/v') && 'prod') || 'dev' }}
+    env:
+      RG: rg-festive-${{ github.event.inputs.env || (startsWith(github.ref, 'refs/tags/v') && 'prod') || 'dev' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build web
+        run: pnpm --filter web build
+        env:
+          # Same domain through Front Door by default. For an API on another domain set the
+          # environment variable WEB_API_BASE (e.g. https://api.example.in/api) and webOrigins in Bicep.
+          VITE_API_BASE: ${{ vars.WEB_API_BASE || '/api' }}
+          # Company website linked from the game page, and the game on/off switch.
+          VITE_COMPANY_URL: ${{ vars.WEB_COMPANY_URL || '' }}
+          VITE_GAME_ENABLED: ${{ vars.WEB_GAME_ENABLED || 'true' }}
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Read infrastructure outputs
+        id: infra
+        run: |
+          az deployment group show -g "$RG" -n festive-infra --query properties.outputs -o json > outputs.json
+          for k in storageAccountName frontDoorProfileName frontDoorEndpointName publicUrl; do
+            echo "$k=$(jq -r ".$k.value" outputs.json)" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Upload to Blob static website
+        run: |
+          SA="${{ steps.infra.outputs.storageAccountName }}"
+          az storage blob service-properties update --account-name "$SA" --auth-mode login \
+            --static-website --index-document index.html --404-document index.html -o none
+          # Hashed assets: cache for a year. Everything else (index.html, sw.js, manifest): revalidate.
+          az storage blob upload-batch --account-name "$SA" --auth-mode login -d '$web' -s apps/web/dist \
+            --overwrite --pattern 'assets/*' --content-cache-control "public,max-age=31536000,immutable" -o none
+          az storage blob upload-batch --account-name "$SA" --auth-mode login -d '$web' -s apps/web/dist \
+            --overwrite --pattern '[!a]*' --content-cache-control "no-cache" -o none
+
+      - name: Purge Front Door cache
+        run: |
+          az afd endpoint purge -g "$RG" \
+            --profile-name "${{ steps.infra.outputs.frontDoorProfileName }}" \
+            --endpoint-name "${{ steps.infra.outputs.frontDoorEndpointName }}" \
+            --content-paths '/index.html' '/sw.js' '/manifest.webmanifest' '/' -o none
+
+      - name: Smoke test
+        run: |
+          URL="${{ steps.infra.outputs.publicUrl }}"
+          curl -fsS "$URL/" | grep -q "Xpress Pickup"
+          echo "Web live: $URL" >> "$GITHUB_STEP_SUMMARY"

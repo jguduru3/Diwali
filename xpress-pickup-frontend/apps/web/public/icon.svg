@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Xpress Pickup app icon: flat Better Analytics brand blue, bold white initials.
+       Full-bleed so it also works as a maskable icon (the letters sit in the safe zone). -->
+  <rect width="512" height="512" fill="#29a6f2"/>
+  <text x="256" y="300" text-anchor="middle" fill="#ffffff"
+        font-family="'Plus Jakarta Sans', 'Segoe UI', Arial, sans-serif"
+        font-size="200" font-weight="800" letter-spacing="-8">XP</text>
+  <circle cx="374" cy="352" r="18" fill="#ffffff"/>
+</svg>

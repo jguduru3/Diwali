@@ -1,0 +1,66 @@
+name: Deploy infrastructure
+
+# Azure resources for both halves (Bicep): Front Door, the web storage ($web static website),
+# Functions, PostgreSQL, Key Vault, private blob containers, alerts. Run it first, then the
+# API and web workflows deploy code on their own. push to main (infra/**) → dev; tag v* → prod.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths: ['infra/**', '.github/workflows/deploy-infra.yml']
+  workflow_dispatch:
+    inputs:
+      env:
+        description: Environment
+        type: choice
+        options: [dev, prod]
+        default: dev
+
+permissions:
+  id-token: write # Azure OIDC (no stored client secret)
+  contents: read
+
+concurrency:
+  group: infra-${{ github.event.inputs.env || (startsWith(github.ref, 'refs/tags/v') && 'prod') || 'dev' }}
+  cancel-in-progress: false
+
+jobs:
+  infra:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.env || (startsWith(github.ref, 'refs/tags/v') && 'prod') || 'dev' }}
+    env:
+      ENV: ${{ github.event.inputs.env || (startsWith(github.ref, 'refs/tags/v') && 'prod') || 'dev' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Bicep
+        run: |
+          RG="rg-festive-$ENV"
+          az group create -n "$RG" -l centralindia -o none
+          # A fixed deployment name: the API and web workflows read its outputs.
+          az deployment group create -g "$RG" -n festive-infra \
+            -f infra/main.bicep -p "infra/params.$ENV.json" \
+            -p postgresAdminPassword="${{ secrets.PG_ADMIN_PASSWORD }}" \
+               appDbPassword="${{ secrets.APP_DB_PASSWORD }}" \
+               jwtSecret="${{ secrets.JWT_SECRET }}" \
+               merchantSecretsKey="${{ secrets.MERCHANT_SECRETS_KEY }}" \
+               msg91AuthKey="${{ secrets.MSG91_AUTH_KEY }}" \
+               msg91TemplateId="${{ vars.MSG91_TEMPLATE_ID }}" \
+               msg91OrderChangedTemplateId="${{ vars.MSG91_ORDER_CHANGED_TEMPLATE_ID }}" \
+               razorpayKeyId="${{ secrets.RAZORPAY_KEY_ID }}" \
+               razorpayKeySecret="${{ secrets.RAZORPAY_KEY_SECRET }}" \
+               razorpayWebhookSecret="${{ secrets.RAZORPAY_WEBHOOK_SECRET }}" \
+               callProvider="${{ vars.CALL_PROVIDER }}" \
+               exotelSid="${{ vars.EXOTEL_SID }}" \
+               exotelCallerId="${{ vars.EXOTEL_CALLER_ID }}" \
+               exotelApiHost="${{ vars.EXOTEL_API_HOST || 'api.exotel.com' }}" \
+               exotelApiKey="${{ secrets.EXOTEL_API_KEY }}" \
+               exotelApiToken="${{ secrets.EXOTEL_API_TOKEN }}" \
+               deployerPrincipalId="${{ secrets.AZURE_DEPLOYER_OBJECT_ID }}" \
+            --query properties.outputs -o json > outputs.json
+          jq -r 'to_entries[] | "- **\(.key)**: \(.value.value)"' outputs.json >> "$GITHUB_STEP_SUMMARY"
