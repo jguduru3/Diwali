@@ -9,6 +9,14 @@
   audit log without either number. Calls end after 10 minutes.
 - `CALL_PROVIDER` = `exotel` (Exotel "connect two numbers", REST) | `log` | `off` (production
   default until the Exotel keys are set; `/api/health` fails if `exotel` is set without them).
+- **Merged from main (feature/pwa-push): web push.** Subscriptions per installed app and an
+  outbox written in the order transaction (migration 0020, IF NOT EXISTS so a database first
+  migrated from main also works); sent after each request and by a minute timer; removed on
+  sign-out, delete-me and the season purge. No personal data in payloads. VAPID keys via
+  Bicep and Key Vault (deploy-infra passes them); push stays off without them. main's
+  start-up config refusal is folded into /api/health instead: COOKIE_SECURE=false,
+  DATABASE_SSL=false and one VAPID key without the other are production problems.
+  10 push integration tests (124 in all).
 - **Shop entrance photo:** `POST /api/shop/photo` (owner, or the agent during setup; JPEG, PNG
   or WebP up to 2 MB, checked by its bytes) stores it in shop-media and sets the shop's photo,
   which the public list and shop page already return; served from `/api/media/shops/…`.

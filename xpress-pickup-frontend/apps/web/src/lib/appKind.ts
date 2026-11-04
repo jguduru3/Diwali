@@ -43,9 +43,9 @@ export function syncAppChrome(pathname: string) {
   set(
     'meta[name="apple-mobile-web-app-title"]',
     'content',
-    merchant ? 'DX Merchant' : 'Diwali Express',
+    merchant ? 'XP Merchant' : 'Xpress Pickup',
   );
-  set('meta[name="theme-color"]', 'content', merchant ? '#082623' : '#140c24');
+  set('meta[name="theme-color"]', 'content', merchant ? '#0f1b26' : '#073a5c');
   document.documentElement.dataset.app = app;
   return app;
 }

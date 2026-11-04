@@ -2,6 +2,15 @@
 
 ## Branding, Standard only, masked calls (2026-11-04)
 
+- **Merged from main (Diwali Express, feature/pwa-push):** two installable apps, **Xpress
+  Pickup** for customers and **Xpress Pickup Merchant** for shop staff, marshals and admins
+  (own manifests, icons and home-screen titles; app-shell.js picks one per page); a custom
+  service worker (offline pages, price lists and orders, web push); install, update and
+  offline bars, an error boundary, a merchant start page, and a Notifications card on My
+  account and the shop home. Rebranded: Bea on brand blue (customer) and on ink with a blue
+  bag badge (merchant) instead of the diya; ink header for the merchant app; notification
+  text in English, Telugu and Hindi. deploy-web now uploads app-shell.js, which the
+  '[!a]*' pattern skipped, and both manifests as application/manifest+json.
 - **First-visit How it works**: customers and visitors get "An order, step by step" once;
   shop staff entering the merchant area get the five points (pay the shop, pickup only, no
   commission, licensed shops, phone number only). "Green crackers only" is no longer on the
