@@ -73,13 +73,22 @@ jobs:
             --overwrite --pattern 'assets/*' --content-cache-control "public,max-age=31536000,immutable" -o none
           az storage blob upload-batch --account-name "$SA" --auth-mode login -d '$web' -s apps/web/dist \
             --overwrite --pattern '[!a]*' --content-cache-control "no-cache" -o none
+          # app-shell.js starts with "a", so the pattern above skips it: upload it on its own.
+          az storage blob upload --account-name "$SA" --auth-mode login -c '$web' -n app-shell.js \
+            -f apps/web/dist/app-shell.js --overwrite --content-type text/javascript \
+            --content-cache-control "no-cache" -o none
+          # The two app manifests (customer, merchant) need their own content type.
+          for m in manifest.webmanifest merchant.webmanifest; do
+            az storage blob upload --account-name "$SA" --auth-mode login -c '$web' -n "$m" -f "apps/web/dist/$m" \
+              --overwrite --content-type application/manifest+json --content-cache-control "no-cache" -o none
+          done
 
       - name: Purge Front Door cache
         run: |
           az afd endpoint purge -g "$RG" \
             --profile-name "${{ steps.infra.outputs.frontDoorProfileName }}" \
             --endpoint-name "${{ steps.infra.outputs.frontDoorEndpointName }}" \
-            --content-paths '/index.html' '/sw.js' '/manifest.webmanifest' '/' -o none
+            --content-paths '/index.html' '/sw.js' '/manifest.webmanifest' '/merchant.webmanifest' '/app-shell.js' '/' -o none
 
       - name: Smoke test
         run: |

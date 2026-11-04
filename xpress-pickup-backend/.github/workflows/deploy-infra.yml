@@ -55,6 +55,8 @@ jobs:
                razorpayKeyId="${{ secrets.RAZORPAY_KEY_ID }}" \
                razorpayKeySecret="${{ secrets.RAZORPAY_KEY_SECRET }}" \
                razorpayWebhookSecret="${{ secrets.RAZORPAY_WEBHOOK_SECRET }}" \
+               vapidPublicKey="${{ vars.VAPID_PUBLIC_KEY }}" \
+               vapidPrivateKey="${{ secrets.VAPID_PRIVATE_KEY }}" \
                callProvider="${{ vars.CALL_PROVIDER }}" \
                exotelSid="${{ vars.EXOTEL_SID }}" \
                exotelCallerId="${{ vars.EXOTEL_CALLER_ID }}" \

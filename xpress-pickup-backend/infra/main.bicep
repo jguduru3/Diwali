@@ -31,6 +31,11 @@ param msg91TemplateId string = ''
 param msg91OrderChangedTemplateId string = ''
 @description('Customer SMS: "msg91" sends, "log" only logs (never in production).')
 param smsProvider string = env == 'prod' ? 'msg91' : 'log'
+@description('Web push VAPID public key (npx web-push generate-vapid-keys). Empty = notifications off.')
+param vapidPublicKey string = ''
+@secure()
+@description('Web push VAPID private key, kept in Key Vault.')
+param vapidPrivateKey string = ''
 @description('Masked shop → customer calls (G9): "exotel" places them, "off" hides the button, "log" only logs (never in prod). Empty: off in prod, log elsewhere.')
 param callProvider string = ''
 @description('Exotel account SID (Exotel dashboard → API settings).')
@@ -265,6 +270,7 @@ var secrets = {
   'RAZORPAY-WEBHOOK-SECRET': empty(razorpayWebhookSecret) ? 'not-set' : razorpayWebhookSecret
   'EXOTEL-API-KEY': empty(exotelApiKey) ? 'not-set' : exotelApiKey
   'EXOTEL-API-TOKEN': empty(exotelApiToken) ? 'not-set' : exotelApiToken
+  'VAPID-PRIVATE-KEY': empty(vapidPrivateKey) ? 'not-set' : vapidPrivateKey
 }
 
 resource vaultSecrets 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = [
@@ -363,6 +369,9 @@ resource func 'Microsoft.Web/sites@2024-04-01' = {
         { name: 'RAZORPAY_KEY_SECRET', value: '@Microsoft.KeyVault(SecretUri=${vaultUri}secrets/RAZORPAY-KEY-SECRET)' }
         { name: 'RAZORPAY_WEBHOOK_SECRET', value: '@Microsoft.KeyVault(SecretUri=${vaultUri}secrets/RAZORPAY-WEBHOOK-SECRET)' }
         { name: 'MERCHANT_SECRETS_KEY', value: '@Microsoft.KeyVault(SecretUri=${vaultUri}secrets/MERCHANT-SECRETS-KEY)' }
+        // Web push: off until both VAPID keys are set (checked by /api/health in prod).
+        { name: 'VAPID_PUBLIC_KEY', value: vapidPublicKey }
+        { name: 'VAPID_PRIVATE_KEY', value: '@Microsoft.KeyVault(SecretUri=${vaultUri}secrets/VAPID-PRIVATE-KEY)' }
         // Masked calls: the button stays hidden until Exotel and both keys are set.
         { name: 'CALL_PROVIDER', value: effectiveCallProvider }
         { name: 'EXOTEL_SID', value: empty(exotelSid) ? 'not-set' : exotelSid }
