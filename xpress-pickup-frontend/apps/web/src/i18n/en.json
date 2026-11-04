@@ -392,7 +392,8 @@
       "payments": "Payments",
       "licence": "Licence",
       "report": "Report",
-      "poster": "Shop QR"
+      "poster": "Shop QR",
+      "invoices": "Invoices"
     }
   },
   "shopOrders": {
@@ -435,8 +436,7 @@
   "callCustomer": {
     "button": "Call customer",
     "calling": "Calling…",
-    "ringing": "Your phone will ring now. Answer it and we connect you to the customer. Their number stays private.",
-    "hint": "We ring your phone first, then the customer. Neither of you sees the other's number."
+    "hint": "Calls the customer from your phone. Each call is recorded for the shop."
   },
   "firstRun": {
     "merchantTitle": "How Xpress Pickup works for your shop",
@@ -451,6 +451,32 @@
     "saved": "Photo saved. Customers see it with the shop's name.",
     "tooBig": "That photo is too large. Take it again or pick a smaller one.",
     "alt": "Entrance of {{name}}"
+  },
+  "invoice": {
+    "title": "Tax invoice",
+    "open": "Tax invoice",
+    "number": "Invoice no.",
+    "date": "Date",
+    "supplier": "From",
+    "recipient": "Billed to",
+    "gstin": "GSTIN",
+    "gstinNotSet": "GSTIN to be added",
+    "placeOfSupply": "Place of supply",
+    "reference": "Reference",
+    "description": "Description",
+    "sac": "SAC",
+    "qty": "Qty",
+    "taxable": "Taxable value",
+    "cgst": "CGST {{rate}}%",
+    "sgst": "SGST {{rate}}%",
+    "total": "Total (including GST)",
+    "refunded": "This fee was refunded. A credit note is issued against this invoice.",
+    "footer": "Computer-generated invoice; no signature needed.",
+    "print": "Print",
+    "back": "Back",
+    "shopTitle": "Invoices",
+    "shopBody": "GST tax invoices for your season subscription with Xpress Pickup.",
+    "none": "No invoices yet. The invoice appears here once the subscription is paid."
   },
   "packing": {
     "queue": "To pack",
@@ -1049,7 +1075,7 @@
       },
       "privacy": {
         "title": "Phone number only",
-        "body": "We keep only a phone number, with consent. Shops see its last four digits. It is deleted 90 days after the season, or any time on request."
+        "body": "We keep only a phone number, with consent. The shop you order from sees it so they can call you about your order. It is deleted 90 days after the season, or any time on request."
       }
     },
     "flowTitle": "An order, step by step",
@@ -1453,7 +1479,7 @@
     "hours": "Opening hours",
     "priceList": "Price list ({{count}})",
     "approveTitle": "Approve and pay",
-    "price": "Season subscription {{amount}} + GST {{gst}} = {{total}}. A tax invoice is issued on payment.",
+    "price": "Season subscription {{total}}, including GST {{gst}}. A tax invoice is issued on payment.",
     "approvePay": "Approve and pay {{total}}",
     "payNow": "Continue to payment",
     "payBank": "Pay by bank transfer",
@@ -1484,7 +1510,7 @@
         "Your phone number is used only to sign in and to show your orders."
       ],
       "merchant": [
-        "The season subscription is ₹1,999 + GST, paid to Xpress Pickup. It is not tied to any order.",
+        "The season subscription is ₹2,499 including GST, paid to Xpress Pickup. It is not tied to any order.",
         "Never pay an agent in cash. Every payment is made on the platform's page.",
         "Customers pay you directly at your counter. The platform takes no commission.",
         "Platform credit customers use on your bills is paid to you weekly or on request."

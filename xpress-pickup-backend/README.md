@@ -41,30 +41,30 @@ Every value comes from settings, never from code. Locally they live in
 `apps/api/local.settings.json`; in Azure, `infra/main.bicep` sets them on the Function App
 (secrets as Key Vault references).
 
-| Setting                                                                | What it does                                                                                      | Default / note                                              |
-| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| `APP_ENV`                                                              | `dev` or `prod`; prod turns on every production check                                             | —                                                           |
-| `DATABASE_URL`                                                         | PostgreSQL connection (app role)                                                                  | Key Vault in Azure                                          |
-| `DATABASE_SSL`, `DB_POOL_MAX`                                          | TLS to Postgres; connections per instance                                                         | TLS on in Azure; 5                                          |
-| `STORAGE_ACCOUNT_NAME`                                                 | Blob Storage account (licences, shop media, order photos)                                         | empty locally: files go to `UPLOAD_DIR`                     |
-| `JWT_SECRET`, `MERCHANT_SECRETS_KEY`                                   | Session signing; encryption of UPI IDs and PANs                                                   | 32+ characters; never change the second                     |
-| `PUBLIC_ORIGIN`                                                        | The site's https address (links in SMS and owner approval links)                                  | —                                                           |
-| `COOKIE_SECURE`, `COOKIE_SAMESITE`                                     | Session cookie; `None` only when web and API are on different domains                             | secure, `Lax`                                               |
-| `OTP_DEV_MODE`, `DEMO_MODE`                                            | Test sign-in code and the role switcher; refused in production                                    | `false`                                                     |
-| `MSG91_AUTH_KEY`, `MSG91_TEMPLATE_ID`                                  | Sign-in code SMS                                                                                  | required in production                                      |
-| `SMS_PROVIDER`                                                         | Customer SMS: `msg91` sends, `log` only logs                                                      | `msg91` in prod, `log` elsewhere                            |
-| `MSG91_ORDER_CHANGED_TEMPLATE_ID`                                      | "Your order changed" SMS (variables `shop`, `code`, `link`)                                       | required in production                                      |
-| `ORDER_CHANGED_SMS_GAP_MINUTES`                                        | Minimum gap between two such SMS for one order                                                    | 15                                                          |
-| `CALL_PROVIDER`                                                        | Shop → customer calls, masked (G9): `exotel` places them, `log` only logs, `off` hides the button | `off` in prod, `log` elsewhere                              |
-| `EXOTEL_SID`, `EXOTEL_API_KEY`, `EXOTEL_API_TOKEN`, `EXOTEL_CALLER_ID` | Exotel account and the ExoPhone customers see; `EXOTEL_API_HOST` picks the region                 | required when `CALL_PROVIDER=exotel`; host `api.exotel.com` |
-| `PAYMENT_PROVIDER`                                                     | `razorpay` (production) or `mock`                                                                 | —                                                           |
-| `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`    | Platform-fee payments and their webhook                                                           | live keys in production                                     |
-| `MOCK_PAYMENT_SECRET`                                                  | Signs mock payment events (dev only)                                                              | —                                                           |
-| `PLATFORM_FEE_PAISE`                                                   | Flat platform fee per order, in paise                                                             | 3000 (₹30, guardrail G3)                                    |
-| `UNPAID_ORDER_TTL_MINUTES`                                             | Minutes an order waits for its fee before it is cancelled                                         | 60                                                          |
-| `ORDERING_ENABLED`                                                     | Online ordering switch (legal gate L1)                                                            | `false`                                                     |
-| `SEASON_END`                                                           | Last day of the season (blocks, data purge)                                                       | —                                                           |
-| `CATALOGUE_CACHE_SECONDS`                                              | Edge cache for the public catalogue                                                               | 10                                                          |
+| Setting                                                             | What it does                                                          | Default / note                          |
+| ------------------------------------------------------------------- | --------------------------------------------------------------------- | --------------------------------------- |
+| `APP_ENV`                                                           | `dev` or `prod`; prod turns on every production check                 | —                                       |
+| `DATABASE_URL`                                                      | PostgreSQL connection (app role)                                      | Key Vault in Azure                      |
+| `DATABASE_SSL`, `DB_POOL_MAX`                                       | TLS to Postgres; connections per instance                             | TLS on in Azure; 5                      |
+| `STORAGE_ACCOUNT_NAME`                                              | Blob Storage account (licences, shop media, order photos)             | empty locally: files go to `UPLOAD_DIR` |
+| `JWT_SECRET`, `MERCHANT_SECRETS_KEY`                                | Session signing; encryption of UPI IDs and PANs                       | 32+ characters; never change the second |
+| `PUBLIC_ORIGIN`                                                     | The site's https address (links in SMS and owner approval links)      | —                                       |
+| `COOKIE_SECURE`, `COOKIE_SAMESITE`                                  | Session cookie; `None` only when web and API are on different domains | secure, `Lax`                           |
+| `OTP_DEV_MODE`, `DEMO_MODE`                                         | Test sign-in code and the role switcher; refused in production        | `false`                                 |
+| `MSG91_AUTH_KEY`, `MSG91_TEMPLATE_ID`                               | Sign-in code SMS                                                      | required in production                  |
+| `SMS_PROVIDER`                                                      | Customer SMS: `msg91` sends, `log` only logs                          | `msg91` in prod, `log` elsewhere        |
+| `MSG91_ORDER_CHANGED_TEMPLATE_ID`                                   | "Your order changed" SMS (variables `shop`, `code`, `link`)           | required in production                  |
+| `ORDER_CHANGED_SMS_GAP_MINUTES`                                     | Minimum gap between two such SMS for one order                        | 15                                      |
+| `PAYMENT_PROVIDER`                                                  | `razorpay` (production) or `mock`                                     | —                                       |
+| `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` | Platform-fee payments and their webhook                               | live keys in production                 |
+| `MOCK_PAYMENT_SECRET`                                               | Signs mock payment events (dev only)                                  | —                                       |
+| `PLATFORM_FEE_PAISE`                                                | Flat platform fee per order, in paise                                 | 3000 (₹30, guardrail G3)                |
+| `UNPAID_ORDER_TTL_MINUTES`                                          | Minutes an order waits for its fee before it is cancelled             | 60                                      |
+| `ORDERING_ENABLED`                                                  | Online ordering switch (legal gate L1)                                | `false`                                 |
+| `SEASON_END`                                                        | Last day of the season (blocks, data purge)                           | —                                       |
+| `SUPPLIER_NAME`, `SUPPLIER_GSTIN`, `SUPPLIER_ADDRESS`               | The platform on GST tax invoices (fee and subscription, SAC 996211)   | GSTIN and address required in prod      |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`                             | Web push notifications (both or neither)                              | empty: notifications off                |
+| `CATALOGUE_CACHE_SECONDS`                                           | Edge cache for the public catalogue                                   | 10                                      |
 
 `/api/health` reports `config:false` (HTTP 503) in production until every required setting is
 valid, so a deployment with a missing secret fails its smoke test instead of failing customers.

@@ -28,6 +28,7 @@ import {
   startFeePayment,
 } from '../lib/orders';
 import { requireUuidParam } from '../lib/access';
+import { feeInvoice } from '../lib/invoices';
 import { rateLimit } from '../lib/rateLimit';
 
 /** GET /api/ordering — public: is online ordering on, and the fee terms. */
@@ -138,5 +139,13 @@ http('ordersCancel', ['POST'], 'orders/{id}/cancel', cancelHandler);
 http('ordersDecision', ['POST'], 'orders/{id}/decisions', decisionHandler);
 http('ordersPickupQr', ['POST'], 'orders/{id}/pickup-qr', pickupQrHandler);
 http('ordersPackPhoto', ['GET'], 'orders/{id}/pack-photo', packPhotoHandler);
+
+/** GET /api/orders/{id}/invoice — the GST tax invoice for my order's platform fee. */
+export async function feeInvoiceHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const db = getDb();
+  const user = await requireUser(db, req);
+  return json(await feeInvoice(db, user.id, requireUuidParam(req, 'id')));
+}
+http('ordersInvoice', ['GET'], 'orders/{id}/invoice', feeInvoiceHandler);
 http('ordersArrival', ['POST'], 'orders/{id}/arrival', ordersArrivalHandler);
 http('ordersAssistance', ['POST'], 'orders/{id}/assistance', ordersAssistanceHandler);

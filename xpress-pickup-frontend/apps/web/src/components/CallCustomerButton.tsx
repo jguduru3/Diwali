@@ -6,9 +6,8 @@ import { Icon } from './Icon';
 import { Button, cx } from './ui';
 
 /**
- * Call the customer about an order. The calling provider rings this staff member's phone first,
- * then the customer's, so the shop never sees the customer's number (G9). Hidden when calling
- * is off or the order is closed (`canCall` from the server).
+ * Call the customer about an order from this phone's dialer (G9, amended 2026-11-04). The server
+ * logs the call and returns the number; hidden when the order is closed (`canCall`).
  */
 export function CallCustomerButton({
   orderId,
@@ -30,16 +29,17 @@ export function CallCustomerButton({
         size="sm"
         disabled={call.isPending}
         title={t('callCustomer.hint')}
-        onClick={() => call.mutate(orderId)}
+        onClick={() =>
+          call.mutate(orderId, {
+            onSuccess: ({ phone }) => {
+              window.location.href = `tel:${phone}`;
+            },
+          })
+        }
       >
         <Icon icon={PhoneCall} className="h-4 w-4" />
         {call.isPending ? t('callCustomer.calling') : t('callCustomer.button')}
       </Button>
-      {call.isSuccess && (
-        <p role="status" className="text-xs font-semibold text-emerald">
-          {t('callCustomer.ringing')}
-        </p>
-      )}
       <ErrorText error={call.error} />
     </div>
   );

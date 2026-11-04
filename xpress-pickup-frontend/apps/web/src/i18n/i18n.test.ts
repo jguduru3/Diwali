@@ -17,7 +17,7 @@ function values(obj: object, prefix = ''): [string, string][] {
 
 // Text that is the same in every language: brand and payment names, codes, pure placeholders.
 const SAME_EVERYWHERE =
-  /^(?:[\s\d{}.·–()/#:+-]|UPI|QR|SWAS|STAR|SAFAL|PhonePe|GSTIN|UTR|PAN|TDS|Better Analytics Private Limited|\{\{\w+\}\})*$/;
+  /^(?:[\s\d{}.·–()/#:+-]|UPI|QR|SWAS|STAR|SAFAL|PhonePe|GSTIN|UTR|PAN|TDS|SAC|CGST|SGST|%|Better Analytics Private Limited|\{\{\w+\}\})*$/;
 
 describe('i18n catalogues', () => {
   it('en and te have the same keys', () => {

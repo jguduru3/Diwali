@@ -60,27 +60,14 @@ export const env = {
       templates: { order_changed: process.env.MSG91_ORDER_CHANGED_TEMPLATE_ID ?? '' },
     };
   },
-  /** Masked shop → customer calls: 'exotel' places them, 'log' prints, 'off' hides the button. */
-  callProvider(): 'exotel' | 'log' | 'off' {
-    const v = (process.env.CALL_PROVIDER || (this.isProd() ? 'off' : 'log')).toLowerCase();
-    if (v !== 'exotel' && v !== 'log' && v !== 'off')
-      throw new Error('CALL_PROVIDER must be exotel, log or off');
-    if (v === 'log' && this.isProd()) throw new Error('CALL_PROVIDER=log is not allowed in prod');
-    return v;
-  },
-  exotel(): { sid: string; apiKey: string; apiToken: string; callerId: string; host: string } {
-    // Key Vault holds "not-set" for a secret nobody gave
-    const given = (name: string) => {
-      const v = required(name);
-      if (v === 'not-set') throw new Error(`${name} is not set`);
-      return v;
-    };
+  /** The platform's details printed on GST tax invoices (fee and subscription). */
+  supplier(): { name: string; gstin: string; address: string; stateCode: string; state: string } {
     return {
-      sid: given('EXOTEL_SID'),
-      apiKey: given('EXOTEL_API_KEY'),
-      apiToken: given('EXOTEL_API_TOKEN'),
-      callerId: given('EXOTEL_CALLER_ID'),
-      host: process.env.EXOTEL_API_HOST || 'api.exotel.com',
+      name: process.env.SUPPLIER_NAME || 'Better Analytics Private Limited',
+      gstin: (process.env.SUPPLIER_GSTIN || '').toUpperCase(),
+      address: process.env.SUPPLIER_ADDRESS || '',
+      stateCode: process.env.SUPPLIER_STATE_CODE || '36',
+      state: process.env.SUPPLIER_STATE || 'Telangana',
     };
   },
   /** Minimum minutes between two "your order changed" SMS for the same order. */

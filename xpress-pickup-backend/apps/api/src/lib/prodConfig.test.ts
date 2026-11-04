@@ -19,8 +19,9 @@ const LIVE = {
   RAZORPAY_KEY_ID: 'rzp_live_abc',
   RAZORPAY_KEY_SECRET: 'secret',
   RAZORPAY_WEBHOOK_SECRET: 'whsec',
+  SUPPLIER_GSTIN: '36AAPFU0939F1ZW',
+  SUPPLIER_ADDRESS: 'Hyderabad, Telangana',
 };
-const EXOTEL_NAMES = ['EXOTEL_SID', 'EXOTEL_API_KEY', 'EXOTEL_API_TOKEN', 'EXOTEL_CALLER_ID'];
 const saved = { ...process.env };
 beforeEach(() => Object.assign(process.env, LIVE));
 afterEach(() => {
@@ -29,8 +30,6 @@ afterEach(() => {
     'PLATFORM_FEE_PAISE',
     'UNPAID_ORDER_TTL_MINUTES',
     'ORDER_CHANGED_SMS_GAP_MINUTES',
-    ...EXOTEL_NAMES,
-    'CALL_PROVIDER',
     'COOKIE_SECURE',
     'DATABASE_SSL',
     'VAPID_PUBLIC_KEY',
@@ -88,21 +87,6 @@ describe('production readiness', () => {
     expect(productionProblems()).toEqual([]);
   });
 
-  it('calling is optional, but once on it needs every Exotel setting', () => {
-    process.env.CALL_PROVIDER = 'off';
-    expect(productionProblems()).toEqual([]);
-    process.env.CALL_PROVIDER = 'exotel';
-    for (const n of EXOTEL_NAMES) process.env[n] = 'x';
-    expect(productionProblems()).toEqual([]);
-    // Key Vault holds "not-set" for a secret nobody gave
-    process.env.EXOTEL_API_TOKEN = 'not-set';
-    expect(productionProblems()).toEqual([
-      'EXOTEL_SID, EXOTEL_API_KEY, EXOTEL_API_TOKEN and EXOTEL_CALLER_ID are needed to place calls',
-    ]);
-    process.env.CALL_PROVIDER = 'log';
-    expect(productionProblems()).toContain('CALL_PROVIDER=log is not allowed in prod');
-  });
-
   it('refuses insecure cookies or database TLS off in production', () => {
     process.env.COOKIE_SECURE = 'false';
     process.env.DATABASE_SSL = 'false';
@@ -122,5 +106,14 @@ describe('production readiness', () => {
     ]);
     process.env.VAPID_PRIVATE_KEY = 'priv';
     expect(productionProblems()).toEqual([]);
+  });
+
+  it('tax invoices need the platform GSTIN and address', () => {
+    process.env.SUPPLIER_GSTIN = 'NOT-A-GSTIN';
+    delete process.env.SUPPLIER_ADDRESS;
+    expect(productionProblems()).toEqual([
+      'SUPPLIER_GSTIN must be a valid GSTIN for tax invoices',
+      'SUPPLIER_ADDRESS is needed on tax invoices',
+    ]);
   });
 });

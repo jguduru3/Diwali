@@ -610,9 +610,21 @@ export function OrderPage() {
               {formatPaise(o.finalTotalPaise ?? liveEstimate)}
             </p>
           </div>
-          <Badge tone={o.fee.status === 'paid' ? 'emerald' : 'muted'}>
-            {t(`fee.${o.fee.status}`)}
-          </Badge>
+          {/* No "₹30 fee paid" badge (owner's request, 2026-11-04); refunds and an unpaid fee
+              still show, since the customer needs to know about those. */}
+          <div className="flex flex-col items-end gap-2">
+            {o.fee.status !== 'paid' && o.fee.status !== 'kept' && (
+              <Badge tone="muted">{t(`fee.${o.fee.status}`)}</Badge>
+            )}
+            {o.fee.invoiceNo && (
+              <Link
+                to={`/orders/${o.id}/invoice`}
+                className="text-sm font-semibold text-plum underline-offset-4 hover:underline"
+              >
+                {t('invoice.open')}
+              </Link>
+            )}
+          </div>
         </div>
       </Card>
       {o.packPhotoAt && (

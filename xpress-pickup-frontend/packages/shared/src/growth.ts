@@ -1,14 +1,19 @@
 // Growth program rules (agents and their payouts, merchant subscription, kits).
 // Pure functions shared by the API, which enforces them (G3, G12, G13), and the web.
 import { z } from 'zod';
+import { gstFromInclusive } from './invoice';
 import { istDate } from './time';
 
 // ---- Money (integer paise) ----
 
-/** Merchant season subscription: ₹1,999 + 18% GST (₹360), paid to the platform (G3). */
-export const SUBSCRIPTION_PAISE = 199_900;
-export const SUBSCRIPTION_GST_PAISE = 36_000;
-export const SUBSCRIPTION_TOTAL_PAISE = SUBSCRIPTION_PAISE + SUBSCRIPTION_GST_PAISE;
+/**
+ * Merchant season subscription: ₹2,499 including 18% GST, paid to the platform (G3, amended
+ * 2026-11-04; was ₹1,999 + GST). Taxable ₹2,117.80 + GST ₹381.20.
+ */
+export const SUBSCRIPTION_TOTAL_PAISE = 249_900;
+const subscriptionGst = gstFromInclusive(SUBSCRIPTION_TOTAL_PAISE);
+export const SUBSCRIPTION_PAISE = subscriptionGst.taxablePaise;
+export const SUBSCRIPTION_GST_PAISE = subscriptionGst.gstPaise;
 /** One payment per merchant an agent sets up, once the shop is paid and live. */
 export const AGENT_PAYOUT_PAISE = 100_000;
 /** No TDS until this is earned in a financial year; 2% on the excess after it. */

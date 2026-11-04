@@ -6,7 +6,6 @@ import {
   formatOrderCode,
   formatPaise,
   istDate,
-  staffPhoneMask,
   type MerchantPaymentSettingsView,
   type SalesRecordItem,
 } from '@pataka/shared';
@@ -681,7 +680,7 @@ export function PaymentHistory() {
                           </div>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-muted">{staffPhoneMask(tx.customerPhone)}</td>
+                      <td className="px-4 py-3 text-muted">{tx.customerPhone}</td>
                       <td
                         className="px-4 py-3 text-xs text-muted max-w-xs truncate"
                         title={tx.itemsSummary}
@@ -859,7 +858,7 @@ export function PaymentHistory() {
               </div>
               <div>
                 <p className="text-muted">{t('payments.customer')}</p>
-                <p className="font-medium text-ink">{staffPhoneMask(selectedTx.customerPhone)}</p>
+                <p className="font-medium text-ink">{selectedTx.customerPhone}</p>
               </div>
               <div>
                 <p className="text-muted">{t('payments.cashier')}</p>

@@ -5,9 +5,16 @@ const inr = new Intl.NumberFormat('en-IN', {
   minimumFractionDigits: 0,
 });
 
-/** 150000 → "₹1,500". Money is always integer paise. */
+const inrPaise = new Intl.NumberFormat('en-IN', {
+  style: 'currency',
+  currency: 'INR',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+/** 150000 → "₹1,500"; 38120 → "₹381.20" (paise always two digits). Money is integer paise. */
 export function formatPaise(paise: number): string {
-  return inr.format(paise / 100);
+  return (paise % 100 === 0 ? inr : inrPaise).format(paise / 100);
 }
 
 /** "1,500.50" / "1500.5" → 150050, or null if not a positive amount. */

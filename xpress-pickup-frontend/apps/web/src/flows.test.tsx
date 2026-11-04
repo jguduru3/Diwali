@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import type { StaffOrder, StaffOrderLine } from '@pataka/shared';
 import { account, itemsResponse, mockApi } from './test/mockApi';
@@ -179,7 +179,7 @@ describe('packing — each item must match its barcode', () => {
     });
   });
 
-  it('Call customer asks the server to ring the packer, and never sees the number', async () => {
+  it('Call customer logs the call, then opens the dialer with the customer number', async () => {
     const calls = mockApi(account('shop_packer'), {
       extra: {
         '/shop/context': ctx,
@@ -199,16 +199,19 @@ describe('packing — each item must match its barcode', () => {
           },
         ],
         [`/shop/orders/${ORDER_ID}`]: order,
-        [`/shop/orders/${ORDER_ID}/call`]: { status: 'ringing' },
+        [`/shop/orders/${ORDER_ID}/call`]: { phone: '+919000000099' },
       },
     });
+    // jsdom cannot open a dialer: watch the tel: navigation instead.
+    const location = { href: '' };
+    vi.stubGlobal('location', location);
     renderAt('/shop/packing');
     fireEvent.click(await screen.findByRole('button', { name: 'Open' }));
     fireEvent.click(await screen.findByRole('button', { name: /Call customer/ }));
-    expect(await screen.findByRole('status')).toHaveTextContent('Your phone will ring now');
+    await waitFor(() => expect(location.href).toBe('tel:+919000000099'));
     const sent = calls.find((c) => c.url.includes('/call'))!;
     expect(sent.method).toBe('POST');
-    expect(sent.body ?? '').not.toMatch(/\d{10}/);
+    vi.unstubAllGlobals();
   });
 });
 

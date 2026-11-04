@@ -12,6 +12,8 @@ import {
   isValidGstin,
   SUBMIT_MIN_PRODUCTS,
   SUBSCRIPTION_GST_PAISE,
+  financialYear,
+  invoiceNumber,
   SUBSCRIPTION_PAISE,
   SUBSCRIPTION_TOTAL_PAISE,
   TERMS_VERSIONS,
@@ -684,7 +686,7 @@ async function markSubscriptionPaid(
   const [{ n }] = (
     await tx.execute<{ n: string }>(sql`select nextval('merchant_invoice_seq') as n`)
   ).rows as [{ n: string }];
-  const invoiceNo = `DXE/${season()}/${String(n).padStart(6, '0')}`;
+  const invoiceNo = invoiceNumber('XPS', financialYear(), Number(n));
   await tx
     .update(merchantSubscriptions)
     .set({ ...patch, status: 'paid', invoiceNo })

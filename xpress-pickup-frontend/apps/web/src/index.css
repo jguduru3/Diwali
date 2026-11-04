@@ -278,6 +278,20 @@
   .no-print {
     display: none !important;
   }
+  /* GST tax invoices print on A4, not the 58 mm thermal roll. */
+  .print-area.print-invoice {
+    page: invoice;
+    width: auto;
+    font:
+      10pt/1.4 'Plus Jakarta Sans',
+      sans-serif;
+    box-shadow: none;
+    border: 0;
+  }
+}
+@page invoice {
+  size: A4;
+  margin: 14mm;
 }
 
 @media (prefers-reduced-motion: reduce) {

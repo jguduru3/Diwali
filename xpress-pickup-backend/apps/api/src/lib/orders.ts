@@ -9,6 +9,8 @@ import {
   ORDER_CODE_LENGTH,
   ORDER_SECRET_LENGTH,
   canCallCustomer,
+  financialYear,
+  invoiceNumber,
   canTransition,
   confirmBy,
   effectivePrice,
@@ -63,7 +65,6 @@ import {
   visibleShops,
 } from '../db/schema';
 import { audit } from './audit';
-import { callBridge, callingAvailable } from './calls';
 import { applySubscriptionEvent } from './growth/merchants';
 import { itemImageUrl } from './catalogue';
 import { env } from './env';
@@ -213,7 +214,7 @@ async function feeState(db: Db | Tx, order: OrderRow): Promise<FeeState> {
     .where(eq(feePayments.orderId, order.id))
     .orderBy(desc(feePayments.createdAt));
   const capturedPays = pays.filter((p) => p.status === 'captured');
-  const base = { amountPaise: order.feePaise, checkout: null };
+  const base = { amountPaise: order.feePaise, checkout: null, invoiceNo: order.feeInvoiceNo };
   if (capturedPays.length === 0) {
     const open = pays.find((p) => p.status === 'created');
     const fresh =
@@ -350,7 +351,7 @@ export async function staffOrderView(db: Db | Tx, order: OrderRow): Promise<Staf
     id: order.id,
     code: formatOrderCode(order.code),
     status: order.status,
-    customer: staffPhoneMask(customer?.phone ?? ''),
+    customer: customer?.phone ?? '',
     lines,
     estimatedTotalPaise: order.estimatedTotalPaise,
     finalTotalPaise: order.finalTotalPaise,
@@ -370,7 +371,7 @@ export async function staffOrderView(db: Db | Tx, order: OrderRow): Promise<Staf
     assistanceReviewedAt: iso(order.assistanceReviewedAt),
     gateNotificationStatus: (order.gateNotificationStatus ?? 'none') as GateNotificationStatus,
     gateAcknowledgedAt: iso(order.gateAcknowledgedAt),
-    canCall: callingAvailable() && canCallCustomer(order.status),
+    canCall: !!customer?.phone && canCallCustomer(order.status),
     counterPayment: pay
       ? {
           id: pay.id,
@@ -457,14 +458,14 @@ export async function staffOrderSummaries(
     id: o.id,
     code: formatOrderCode(o.code),
     status: o.status,
-    customer: staffPhoneMask(phone),
+    customer: phone,
     estimatedTotalPaise: o.estimatedTotalPaise,
     packNo: o.packNo,
     placedAt: iso(o.feePaidAt),
     confirmBy: iso(o.confirmBy),
     lineCount,
     openDecisions,
-    canCall: callingAvailable() && canCallCustomer(o.status),
+    canCall: !!phone && canCallCustomer(o.status),
   }));
 }
 
@@ -834,11 +835,17 @@ async function applyFeeEventInTx(
     if (order.status !== 'fee_pending') {
       return { outcome: 'captured_order_closed', orderId: order.id };
     }
+    const [{ n }] = (await tx.execute<{ n: string }>(sql`select nextval('fee_invoice_seq') as n`))
+      .rows as [{ n: string }];
     await transition(
       tx,
       order,
       'placed',
-      { feePaidAt: now, confirmBy: confirmBy(now) },
+      {
+        feePaidAt: now,
+        confirmBy: confirmBy(now),
+        feeInvoiceNo: invoiceNumber('XPF', financialYear(now), Number(n)),
+      },
       null,
       'fee_paid',
       { provider },
@@ -979,20 +986,13 @@ export async function refundFee(
   }
 }
 
-// ---- Merchant: call the customer (masked) ----
+// ---- Merchant: call the customer ----
 
 /**
- * Rings the staff member's own phone, then the customer's, through the calling provider
- * (G9: the number never reaches the shop). Open orders only; logged without either number.
+ * Shop staff call the customer from their own phone's dialer (G9, amended 2026-11-04): open
+ * orders only, and every call tap is logged (who, which order; the number is not copied).
  */
-export async function callCustomer(
-  db: Db,
-  shopId: string,
-  staff: { id: string; phoneE164: string },
-  orderId: string,
-) {
-  const bridge = callingAvailable() ? callBridge() : null;
-  if (!bridge) throw new HttpError(409, 'calls_off', 'Calling customers is not switched on');
+export async function callCustomer(db: Db, shopId: string, staffUserId: string, orderId: string) {
   const order = await shopOrder(db, shopId, orderId);
   if (!canCallCustomer(order.status))
     throw new HttpError(409, 'bad_state', 'This order is closed, so the customer cannot be called');
@@ -1002,22 +1002,16 @@ export async function callCustomer(
     .where(eq(users.id, order.userId));
   // a deleted account (delete-me) has no number to call
   if (!customer?.phone) throw new HttpError(409, 'no_phone', 'This customer cannot be called');
-  try {
-    await bridge.connect(staff.phoneE164, customer.phone);
-  } catch (err) {
-    console.error(`[call] ${bridge.name} failed for order ${order.id}: ${(err as Error).message}`);
-    throw new HttpError(502, 'call_failed', 'The call could not be placed. Try again.');
-  }
   await db.transaction((tx) =>
     audit(tx, {
-      actorUserId: staff.id,
+      actorUserId: staffUserId,
       action: 'order.call_customer',
       entity: 'order',
       entityId: order.id,
-      meta: { provider: bridge.name },
+      meta: { method: 'dialer' },
     }),
   );
-  return { status: 'ringing' as const };
+  return { phone: customer.phone };
 }
 
 // ---- Merchant: confirm / reject ----
@@ -1605,7 +1599,7 @@ export async function shopAssistanceRequests(
     id: o.id,
     code: formatOrderCode(o.code),
     packNo: o.packNo,
-    customer: staffPhoneMask(customerPhone),
+    customer: customerPhone,
     status: o.status,
     arrivalStatus: (o.arrivalStatus ?? 'not_arrived') as ArrivalStatus,
     arrivalNotifiedAt: iso(o.arrivalNotifiedAt),
@@ -1667,7 +1661,7 @@ export async function reviewPickupAssistance(
     id: updated!.id,
     code: formatOrderCode(updated!.code),
     packNo: updated!.packNo,
-    customer: staffPhoneMask(order.customerPhone),
+    customer: order.customerPhone,
     status: updated!.status,
     arrivalStatus: (updated!.arrivalStatus ?? 'not_arrived') as ArrivalStatus,
     arrivalNotifiedAt: iso(updated!.arrivalNotifiedAt),

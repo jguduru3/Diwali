@@ -7,6 +7,7 @@ import {
   type MerchantDraft,
   type ReviewPage,
   INDUCTION_VERSION,
+  taxInvoiceSchema,
 } from '@pataka/shared';
 import { getDb } from '../src/db/client';
 import {
@@ -43,7 +44,11 @@ import {
   ownerDecision,
 } from '../src/functions/growth';
 import { mockCompleteHandler } from '../src/functions/payments';
-import { shopItemCreateHandler, shopLicenceSubmitHandler } from '../src/functions/shop';
+import {
+  shopInvoicesHandler,
+  shopItemCreateHandler,
+  shopLicenceSubmitHandler,
+} from '../src/functions/shop';
 import { getMeHandler } from '../src/functions/me';
 import { onboardingReminders, payoutCheck } from '../src/lib/growth/merchants';
 import { createPayout } from '../src/lib/growth/payouts';
@@ -185,8 +190,8 @@ describe('agent onboarding → subscription → live → one ₹1,000 payout', (
     const page = body<ReviewPage>(await call(ownerReviewHandler, { params: { token } }));
     expect(page).toMatchObject({
       shopName: 'Sri Ganesh Stores',
-      amountPaise: 199900,
-      gstPaise: 36000,
+      amountPaise: 211780,
+      gstPaise: 38120,
     });
     expect(page.items).toHaveLength(10);
 
@@ -198,7 +203,7 @@ describe('agent onboarding → subscription → live → one ₹1,000 payout', (
       .from(merchantSubscriptions)
       .where(eq(merchantSubscriptions.shopId, draft.id));
     expect(sub).toMatchObject({ status: 'paid' });
-    expect(sub!.invoiceNo).toMatch(/^DXE\/\d{4}\/\d{6}$/);
+    expect(sub!.invoiceNo).toMatch(/^XPS\/\d{4}\/\d{6}$/);
     // The owner has the shop now; the agent's setup access ended.
     const [owner] = await db()
       .select()
@@ -206,6 +211,21 @@ describe('agent onboarding → subscription → live → one ₹1,000 payout', (
       .where(eq(users.phoneE164, shop!.ownerPhoneE164!));
     const [member] = await db().select().from(shopMembers).where(eq(shopMembers.userId, owner!.id));
     expect(member).toMatchObject({ shopId: draft.id, role: 'shop_owner' });
+    // The owner's GST tax invoice: ₹2,499 including GST, SAC 996211.
+    const ownerSession = await signIn(shop!.ownerPhoneE164!);
+    const invoices = taxInvoiceSchema
+      .array()
+      .parse((await call(shopInvoicesHandler, { session: ownerSession })).jsonBody);
+    expect(invoices).toHaveLength(1);
+    expect(invoices[0]).toMatchObject({
+      kind: 'subscription',
+      invoiceNo: sub!.invoiceNo,
+      taxablePaise: 211780,
+      cgstPaise: 19060,
+      sgstPaise: 19060,
+      totalPaise: 249900,
+      lines: [{ sac: '996211' }],
+    });
     const blocked = await call(shopItemCreateHandler, {
       method: 'POST',
       session: agent.session,

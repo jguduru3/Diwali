@@ -26,6 +26,7 @@ import { Home } from './routes/customer/Home';
 import { KitsPage } from './routes/customer/KitsPage';
 import { MockPayPage } from './routes/customer/MockPayPage';
 import { OrderPage } from './routes/customer/OrderPage';
+import { FeeInvoicePage } from './routes/customer/FeeInvoicePage';
 import { OrdersPage } from './routes/customer/OrdersPage';
 import { PlanPage } from './routes/customer/PlanPage';
 import { CartPage } from './routes/customer/CartPage';
@@ -41,6 +42,7 @@ import { MerchantStart } from './routes/MerchantStart';
 import { NotFound } from './routes/NotFound';
 import { Counter } from './routes/shop/Counter';
 import { Hours } from './routes/shop/Hours';
+import { Invoices } from './routes/shop/Invoices';
 import { Licence } from './routes/shop/Licence';
 import { Packing } from './routes/shop/Packing';
 import { Payments } from './routes/shop/Payments';
@@ -64,6 +66,7 @@ export const routes: RouteObject[] = [
       { path: '/induction', element: <InductionPage /> },
       { path: '/orders', element: guard(<OrdersPage />) },
       { path: '/orders/:id', element: guard(<OrderPage />) },
+      { path: '/orders/:id/invoice', element: guard(<FeeInvoicePage />) },
       // The ₹30 fee checkout checks the customer itself; a subscription checkout needs no sign-in.
       { path: '/pay/mock/:checkoutId', element: <MockPayPage /> },
       { path: '/kits/:type', element: <KitsPage /> },
@@ -88,6 +91,7 @@ export const routes: RouteObject[] = [
           { path: 'payments', element: <Payments /> },
           { path: 'licence', element: <Licence /> },
           { path: 'report', element: <Report /> },
+          { path: 'invoices', element: <Invoices /> },
           { path: 'poster', element: <Poster /> },
         ],
       },

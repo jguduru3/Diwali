@@ -31,23 +31,17 @@ param msg91TemplateId string = ''
 param msg91OrderChangedTemplateId string = ''
 @description('Customer SMS: "msg91" sends, "log" only logs (never in production).')
 param smsProvider string = env == 'prod' ? 'msg91' : 'log'
+@description('Printed on GST tax invoices for the platform fee and the merchant subscription.')
+param supplierName string = 'Better Analytics Private Limited'
+@description('The platform GSTIN (Telangana) printed on tax invoices; required in prod (/api/health).')
+param supplierGstin string = ''
+@description('The platform registered address printed on tax invoices; required in prod.')
+param supplierAddress string = ''
 @description('Web push VAPID public key (npx web-push generate-vapid-keys). Empty = notifications off.')
 param vapidPublicKey string = ''
 @secure()
 @description('Web push VAPID private key, kept in Key Vault.')
 param vapidPrivateKey string = ''
-@description('Masked shop → customer calls (G9): "exotel" places them, "off" hides the button, "log" only logs (never in prod). Empty: off in prod, log elsewhere.')
-param callProvider string = ''
-@description('Exotel account SID (Exotel dashboard → API settings).')
-param exotelSid string = ''
-@secure()
-param exotelApiKey string = ''
-@secure()
-param exotelApiToken string = ''
-@description('The ExoPhone customers see when the shop calls them.')
-param exotelCallerId string = ''
-@description('Exotel API host for the region of the account: api.exotel.com (Singapore) or api.in.exotel.com (Mumbai).')
-param exotelApiHost string = 'api.exotel.com'
 @description('Flat platform fee per order in paise (G3: 3000 = ₹30).')
 param platformFeePaise int = 3000
 @description('Minutes an order may wait for its platform fee before it is cancelled.')
@@ -100,8 +94,6 @@ var isProd = env == 'prod'
 var effectiveDemo = isProd ? false : demoMode
 var effectiveOtpDev = isProd ? false : otpDevMode
 var effectiveProvider = isProd ? paymentProvider : (empty(paymentProvider) ? 'mock' : paymentProvider)
-// Calls: "log" is never allowed in prod; empty means off in prod and log elsewhere.
-var effectiveCallProvider = empty(callProvider) || (isProd && callProvider == 'log') ? (isProd ? 'off' : 'log') : callProvider
 var suffix = uniqueString(resourceGroup().id)
 var tags = { app: 'xpress-pickup', env: env }
 // PgBouncer (built into Flexible Server) is not offered on Burstable; with it the app connects
@@ -268,8 +260,6 @@ var secrets = {
   'RAZORPAY-KEY-ID': empty(razorpayKeyId) ? 'not-set' : razorpayKeyId
   'RAZORPAY-KEY-SECRET': empty(razorpayKeySecret) ? 'not-set' : razorpayKeySecret
   'RAZORPAY-WEBHOOK-SECRET': empty(razorpayWebhookSecret) ? 'not-set' : razorpayWebhookSecret
-  'EXOTEL-API-KEY': empty(exotelApiKey) ? 'not-set' : exotelApiKey
-  'EXOTEL-API-TOKEN': empty(exotelApiToken) ? 'not-set' : exotelApiToken
   'VAPID-PRIVATE-KEY': empty(vapidPrivateKey) ? 'not-set' : vapidPrivateKey
 }
 
@@ -369,16 +359,13 @@ resource func 'Microsoft.Web/sites@2024-04-01' = {
         { name: 'RAZORPAY_KEY_SECRET', value: '@Microsoft.KeyVault(SecretUri=${vaultUri}secrets/RAZORPAY-KEY-SECRET)' }
         { name: 'RAZORPAY_WEBHOOK_SECRET', value: '@Microsoft.KeyVault(SecretUri=${vaultUri}secrets/RAZORPAY-WEBHOOK-SECRET)' }
         { name: 'MERCHANT_SECRETS_KEY', value: '@Microsoft.KeyVault(SecretUri=${vaultUri}secrets/MERCHANT-SECRETS-KEY)' }
+        // GST tax invoices (fee and subscription): the platform as supplier, in Telangana.
+        { name: 'SUPPLIER_NAME', value: supplierName }
+        { name: 'SUPPLIER_GSTIN', value: supplierGstin }
+        { name: 'SUPPLIER_ADDRESS', value: supplierAddress }
         // Web push: off until both VAPID keys are set (checked by /api/health in prod).
         { name: 'VAPID_PUBLIC_KEY', value: vapidPublicKey }
         { name: 'VAPID_PRIVATE_KEY', value: '@Microsoft.KeyVault(SecretUri=${vaultUri}secrets/VAPID-PRIVATE-KEY)' }
-        // Masked calls: the button stays hidden until Exotel and both keys are set.
-        { name: 'CALL_PROVIDER', value: effectiveCallProvider }
-        { name: 'EXOTEL_SID', value: empty(exotelSid) ? 'not-set' : exotelSid }
-        { name: 'EXOTEL_API_KEY', value: '@Microsoft.KeyVault(SecretUri=${vaultUri}secrets/EXOTEL-API-KEY)' }
-        { name: 'EXOTEL_API_TOKEN', value: '@Microsoft.KeyVault(SecretUri=${vaultUri}secrets/EXOTEL-API-TOKEN)' }
-        { name: 'EXOTEL_CALLER_ID', value: empty(exotelCallerId) ? 'not-set' : exotelCallerId }
-        { name: 'EXOTEL_API_HOST', value: exotelApiHost }
         // Links and payment return URLs: the custom domain, or the Front Door address until one is set.
         { name: 'PUBLIC_ORIGIN', value: 'https://${empty(domain) ? endpoint.properties.hostName : domain}' }
         { name: 'DB_POOL_MAX', value: string(dbPoolMax) }

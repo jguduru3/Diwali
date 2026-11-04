@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { addDays, formatOrderCode, formatPaise, istDate, staffPhoneMask } from '@pataka/shared';
+import { addDays, formatOrderCode, formatPaise, istDate } from '@pataka/shared';
 import { ErrorText } from '../../components/ErrorText';
 import {
   Badge,
@@ -490,7 +490,7 @@ export function Report() {
                       <td className="px-5 py-3 font-mono font-semibold text-ink">
                         {formatOrderCode(s.orderCode)}
                       </td>
-                      <td className="px-4 py-3 text-muted">{staffPhoneMask(s.customerPhone)}</td>
+                      <td className="px-4 py-3 text-muted">{s.customerPhone}</td>
                       <td className="px-4 py-3 text-xs text-muted">{dateTimeIST(s.completedAt)}</td>
                       <td className="px-4 py-3 text-center">
                         <Badge

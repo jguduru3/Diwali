@@ -33,6 +33,7 @@ import {
   shopDetailSchema,
   shopSummarySchema,
   callCustomerResultSchema,
+  taxInvoiceSchema,
   staffOrderSchema,
   staffOrderSummarySchema,
   type ArrivalNotificationInput,
@@ -398,6 +399,22 @@ export function useShopOrders(view: OrdersView) {
     queryFn: () =>
       api(`/shop/orders?view=${view}${s.q('&')}`, { schema: z.array(staffOrderSummarySchema) }),
     refetchInterval: 10_000, // SPEC §3: shop screens poll every 10 s
+  });
+}
+
+/** The GST tax invoice for my order's platform fee. */
+export const useFeeInvoice = (orderId: string) =>
+  useQuery({
+    queryKey: ['feeInvoice', orderId],
+    queryFn: () => api(`/orders/${orderId}/invoice`, { schema: taxInvoiceSchema }),
+  });
+
+/** The shop's season subscription GST invoices (owner). */
+export function useShopInvoices() {
+  const s = useShopScope();
+  return useQuery({
+    queryKey: ['shopInvoices', s.code],
+    queryFn: () => api(`/shop/invoices${s.q()}`, { schema: taxInvoiceSchema.array() }),
   });
 }
 

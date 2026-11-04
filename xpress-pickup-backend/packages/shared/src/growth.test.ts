@@ -25,7 +25,7 @@ describe('codes', () => {
 
 describe('subscription', () => {
   it('is ₹1,999 + ₹360 GST', () => {
-    expect(SUBSCRIPTION_PAISE + SUBSCRIPTION_GST_PAISE).toBe(235_900);
+    expect(SUBSCRIPTION_PAISE + SUBSCRIPTION_GST_PAISE).toBe(249_900);
   });
 });
 

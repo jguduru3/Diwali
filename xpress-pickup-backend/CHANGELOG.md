@@ -1,5 +1,24 @@
 # Changelog
 
+## Direct calls, ₹2,499 subscription, GST tax invoices (2026-11-04)
+
+- **G9 amended (owner's decision):** shop staff see the customer's full number on orders,
+  packing, the counter and pickup assistance, and call it from their phone's dialer.
+  `POST /shop/orders/{id}/call` logs each call (audit_log, without the number) and returns the
+  number; open orders only, 3 per order per 30 minutes. Gate marshals and the admin console
+  still see it masked. The Exotel bridge and all its settings are removed.
+- **G3 amended (owner's decision):** the merchant subscription is ₹2,499 including GST
+  (₹2,117.80 + ₹381.20); it was ₹1,999 + GST.
+- **GST tax invoices, SAC 996211** (fee basis services on retail trade; chosen over 998316,
+  997158 and 998551; confirm with the CA). The ₹30 fee includes GST (₹25.42 + ₹2.29 CGST +
+  ₹2.29 SGST) and gets an invoice when paid (`XPF/<FY>/<serial>`, migration 0021); new
+  subscriptions are numbered `XPS/<FY>/<serial>`. `GET /orders/{id}/invoice` (customer) and
+  `GET /shop/invoices` (owner). Invoices show what was charged, so earlier ₹1,999 + GST
+  subscriptions keep their amounts and numbers. `SUPPLIER_GSTIN` and `SUPPLIER_ADDRESS` are
+  required in production (`/api/health`), set through Bicep and deploy-infra.
+- Money shows paise as two digits (₹381.20, not ₹381.2).
+- Tests: 158 unit, 125+ integration (calls rewritten; 4 invoice tests).
+
 ## Shop calls the customer, masked (2026-11-04)
 
 - **Call customer** on the shop's order list, packing screen and counter: the calling provider

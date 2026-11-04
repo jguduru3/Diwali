@@ -32,7 +32,10 @@ describe('findBannedTerms', () => {
 describe('money', () => {
   it('formats paise as rupees', () => {
     expect(formatPaise(150000)).toBe('₹1,500');
-    expect(formatPaise(12050)).toBe('₹120.5');
+    // paise always as two digits, as on a bill or tax invoice
+    expect(formatPaise(12050)).toBe('₹120.50');
+    expect(formatPaise(38120)).toBe('₹381.20');
+    expect(formatPaise(3000)).toBe('₹30');
   });
 
   it('parses rupee input', () => {

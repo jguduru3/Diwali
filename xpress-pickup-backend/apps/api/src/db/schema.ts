@@ -416,6 +416,8 @@ export const orders = pgTable(
     packQr: text('pack_qr'),
     packMatchedAt: tz('pack_matched_at'),
     feePaidAt: tz('fee_paid_at'),
+    /** GST tax invoice for the platform fee, XPF/<FY>/<serial>, set when the fee is paid */
+    feeInvoiceNo: text('fee_invoice_no').unique(),
     confirmBy: tz('confirm_by'),
     confirmedAt: tz('confirmed_at'),
     confirmedBy: uuid('confirmed_by').references(() => users.id),

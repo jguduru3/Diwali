@@ -33,8 +33,8 @@ export type OrderStatus = (typeof ORDER_STATUSES)[number];
 export const FINAL_ORDER_STATUSES = ['completed', 'cancelled', 'rejected', 'expired'] as const;
 
 /**
- * Shop staff may call the customer about an order while it is open at the shop. The call is
- * bridged by a calling provider, so neither side sees the other's number (G9).
+ * Shop staff may call the customer about an order while it is open at the shop, straight from
+ * their phone's dialer (G9, amended 2026-11-04). Each call tap is logged.
  */
 export function canCallCustomer(status: OrderStatus): boolean {
   return status !== 'fee_pending' && !(FINAL_ORDER_STATUSES as readonly string[]).includes(status);
@@ -353,6 +353,8 @@ export const feeStateSchema = z.object({
   amountPaise: z.number(),
   status: z.enum(['unpaid', 'paid', 'kept', 'refund_pending', 'refunded', 'refund_failed']),
   checkout: z.object({ provider: z.string(), checkoutId: z.string(), url: z.string() }).nullable(),
+  /** the GST tax invoice for the fee, once it is paid (GET /orders/{id}/invoice) */
+  invoiceNo: z.string().nullable().optional(),
 });
 export type FeeState = z.infer<typeof feeStateSchema>;
 
@@ -501,13 +503,13 @@ export const staffOrderSchema = z.object({
   counterPayment: counterPaymentSchema.nullable(),
   bill: billSchema.nullable(),
   packPhotoAt: iso.nullable(),
-  /** the Call customer button: calling is set up and the order is open (canCallCustomer) */
+  /** the Call customer button: the order is open (canCallCustomer) and has a number to call */
   canCall: z.boolean().optional().default(false),
 });
 export type StaffOrder = z.infer<typeof staffOrderSchema>;
 
-/** POST /shop/orders/{id}/call: the provider is ringing the staff member's phone first. */
-export const callCustomerResultSchema = z.object({ status: z.literal('ringing') });
+/** POST /shop/orders/{id}/call: logs the call and returns the number for the phone's dialer. */
+export const callCustomerResultSchema = z.object({ phone: z.string() });
 export type CallCustomerResult = z.infer<typeof callCustomerResultSchema>;
 
 export const staffOrderSummarySchema = staffOrderSchema

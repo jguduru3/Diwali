@@ -36,14 +36,13 @@ Each pipeline also runs on its own path changes (`apps/web/**`, `apps/api/**`, `
 
 ## Step 0 — Accounts to have ready
 
-| Account                    | What you need from it                                                                                         | Needed for                          |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| Azure subscription         | Owner rights; quota for PostgreSQL Flexible Server and Functions Flex Consumption in Central India            | dev and prod                        |
-| GitHub repo                | Admin rights (secrets, environments, Actions)                                                                 | dev and prod                        |
-| MSG91                      | Auth key, a DLT-registered sender and an approved OTP template (the template must contain the `otp` variable) | prod (sign-in SMS)                  |
-| Razorpay                   | Activated account (KYC done), **live** API key ID and secret                                                  | prod (₹30 fee, subscription)        |
-| Exotel (optional)          | Account SID, API key and token, and an ExoPhone (the number customers see)                                    | prod (shop → customer masked calls) |
-| Domain (optional at first) | Access to its DNS (one TXT and one CNAME record)                                                              | prod                                |
+| Account                    | What you need from it                                                                                         | Needed for                   |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| Azure subscription         | Owner rights; quota for PostgreSQL Flexible Server and Functions Flex Consumption in Central India            | dev and prod                 |
+| GitHub repo                | Admin rights (secrets, environments, Actions)                                                                 | dev and prod                 |
+| MSG91                      | Auth key, a DLT-registered sender and an approved OTP template (the template must contain the `otp` variable) | prod (sign-in SMS)           |
+| Razorpay                   | Activated account (KYC done), **live** API key ID and secret                                                  | prod (₹30 fee, subscription) |
+| Domain (optional at first) | Access to its DNS (one TXT and one CNAME record)                                                              | prod                         |
 
 Install the Azure CLI (`az`) and sign in with `az login`. Everything else runs in GitHub Actions.
 
@@ -90,20 +89,19 @@ Settings → Environments → _name_ → Secrets. Generate random values with `o
 | `RAZORPAY_KEY_ID`          | empty (dev uses the mock)           | `rzp_live_…` (test keys are refused)                                                              |
 | `RAZORPAY_KEY_SECRET`      | empty                               | live key secret                                                                                   |
 | `RAZORPAY_WEBHOOK_SECRET`  | empty                               | a random string; you type the same one into Razorpay in step 7                                    |
-| `EXOTEL_API_KEY`           | empty (dev only logs calls)         | Exotel API key (only when `CALL_PROVIDER` is `exotel`)                                            |
-| `EXOTEL_API_TOKEN`         | empty                               | Exotel API token                                                                                  |
+| `VAPID_PRIVATE_KEY`        | empty (push off)                    | from `npx web-push generate-vapid-keys` (with the public key below)                               |
 
 **Variables** (Settings → Environments → _name_ → Variables):
 
 | Variable                          | Value                                                                                                                             |
 | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | `MSG91_TEMPLATE_ID`               | the DLT-approved OTP template id (prod)                                                                                           |
+| `SUPPLIER_GSTIN`                  | the platform GSTIN printed on GST tax invoices (required in prod)                                                                 |
+| `SUPPLIER_ADDRESS`                | the platform registered address printed on tax invoices (required in prod)                                                        |
+| `VAPID_PUBLIC_KEY`                | web push public key (with the `VAPID_PRIVATE_KEY` secret); empty = notifications off                                              |
 | `WEB_API_BASE`                    | leave unset (same domain). Only for a web app on another domain: `https://<api domain>/api`, plus `webOrigins` in the params file |
 | `MSG91_ORDER_CHANGED_TEMPLATE_ID` | DLT-approved MSG91 Flow template for "your order changed" SMS, with variables `shop`, `code`, `link` (prod)                       |
 | `WEB_COMPANY_URL`                 | company website the footer's "Powered by" line links to (default https://betteranalytics.in/)                                     |
-| `CALL_PROVIDER`                   | `exotel` to let shop staff call customers (masked, G9); unset = off in prod, log-only in dev                                      |
-| `EXOTEL_SID`, `EXOTEL_CALLER_ID`  | Exotel account SID and the ExoPhone customers see (with `CALL_PROVIDER=exotel`)                                                   |
-| `EXOTEL_API_HOST`                 | `api.exotel.com` (default, Singapore) or `api.in.exotel.com` (Mumbai), matching the Exotel account                                |
 | `WEB_GAME_ENABLED`                | `true` (default) or `false` to hide the game                                                                                      |
 
 ## Step 4 — First deployment to dev
@@ -234,8 +232,8 @@ deploy smoke test calls `/api/health`, so a deploy with a missing secret fails t
 - [ ] MSG91 DLT sender + OTP template approved; `MSG91_AUTH_KEY` and template id set; test an OTP.
 - [ ] Razorpay account activated (KYC), live keys and webhook secret in GitHub secrets, webhook
       added; pay one ₹2,359 subscription and refund one ₹30 fee to check the whole loop.
-- [ ] Calls (optional): Exotel keys, SID and ExoPhone set with `CALL_PROVIDER=exotel`; a staff
-      member taps Call customer on a test order and both phones ring, showing only the ExoPhone.
+- [ ] GST: `SUPPLIER_GSTIN` and `SUPPLIER_ADDRESS` set; SAC 996211 on the fee and subscription
+      invoices confirmed with the CA; open one invoice of each kind and check it.
 - [ ] `/api/health` on prod returns `{"ok":true,"db":true,"config":true}`.
 - [ ] Peak load test on a staging copy with `loadtest/k6-peak.js` (docs/LOAD_TEST_REPORT.md).
 - [ ] A payout account (bank or UPI) for the agents' ₹1,000 transfers; admins record each UTR in Admin → Payouts.

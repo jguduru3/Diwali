@@ -1,5 +1,16 @@
 # Changelog
 
+## Direct calls, invoices, new subscription price (2026-11-04)
+
+- Shop screens show the customer's full number (G9 amended); **Call customer** opens the
+  phone's dialer after the server logs the call. "Phone number only" now says the shop sees
+  the number to call about the order.
+- **Tax invoices:** customers open the GST invoice for the ₹30 fee from the order page; shop
+  owners have an **Invoices** tab for the subscription. Printable on A4.
+- Merchant subscription shown as ₹2,499 including GST (en, te, hi).
+- The "₹30 fee paid" badge is gone from the order page; refunds still show.
+- Money shows paise as two digits.
+
 ## Branding, Standard only, masked calls (2026-11-04)
 
 - **Merged from main (Diwali Express, feature/pwa-push):** two installable apps, **Xpress

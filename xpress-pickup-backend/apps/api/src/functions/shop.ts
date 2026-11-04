@@ -48,6 +48,7 @@ import {
 } from '../db/schema';
 import { requireShop, requireUuidParam, type ShopRole, type ShopRow } from '../lib/access';
 import { audit } from '../lib/audit';
+import { subscriptionInvoices } from '../lib/invoices';
 import {
   bumpPriceVersion,
   categoryView,
@@ -379,6 +380,15 @@ export async function shopSettingsHandler(req: HttpRequest): Promise<HttpRespons
   return json(await shopContext(db, fresh!, true, role));
 }
 
+// ---- Tax invoices ----
+
+/** GET /api/shop/invoices — the shop's season subscription GST invoices (owner). */
+export async function shopInvoicesHandler(req: HttpRequest): Promise<HttpResponseInit> {
+  const db = getDb();
+  const { shop } = await requireShop(db, req, { ownerOnly: true });
+  return json(await subscriptionInvoices(db, shop.id));
+}
+
 // ---- Shop entrance photo ----
 
 /**
@@ -468,8 +478,8 @@ export async function shopOrderHandler(req: HttpRequest): Promise<HttpResponseIn
 }
 
 /**
- * POST /api/shop/orders/{id}/call — rings the staff member's phone, then the customer's, through
- * the calling provider; neither sees the other's number (G9). Any shop role on an open order.
+ * POST /api/shop/orders/{id}/call — logs the call and returns the customer's number for the
+ * phone's dialer (G9, amended 2026-11-04). Any shop role on an open order.
  */
 export async function shopCallCustomerHandler(req: HttpRequest): Promise<HttpResponseInit> {
   const db = getDb();
@@ -478,7 +488,7 @@ export async function shopCallCustomerHandler(req: HttpRequest): Promise<HttpRes
   // a few tries per order (no answer, wrong moment), and no calling spree from one account
   await rateLimit(db, `call:order:${orderId}`, 3, 30 * 60);
   await rateLimit(db, `call:user:${user.id}`, 30, 60 * 60);
-  return json(await callCustomer(db, shop.id, user, orderId));
+  return json(await callCustomer(db, shop.id, user.id, orderId));
 }
 
 /** POST /api/shop/orders/{id}/confirm — within 3 days of the fee payment. */
@@ -871,6 +881,7 @@ http('shopItemRemove', ['DELETE'], 'shop/items/{id}', shopItemRemoveHandler);
 http('shopSettings', ['PUT'], 'shop/settings', shopSettingsHandler);
 http('shopItemImage', ['POST'], 'shop/items/{id}/image', shopItemImageHandler);
 http('shopPhoto', ['POST'], 'shop/photo', shopPhotoHandler);
+http('shopInvoices', ['GET'], 'shop/invoices', shopInvoicesHandler);
 http('shopOrders', ['GET'], 'shop/orders', shopOrdersHandler);
 http('shopOrder', ['GET'], 'shop/orders/{id}', shopOrderHandler);
 http('shopCallCustomer', ['POST'], 'shop/orders/{id}/call', shopCallCustomerHandler);

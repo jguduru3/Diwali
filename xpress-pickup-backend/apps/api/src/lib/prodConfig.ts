@@ -1,6 +1,7 @@
 // Production readiness: the settings a live deployment must have. /api/health reports
 // config:false (503) until every one is right, so a deploy with a missing secret fails its
 // smoke check instead of failing on the first customer. Only setting names are logged.
+import { isValidGstin } from '@pataka/shared';
 import { env } from './env';
 
 const NOT_SET = new Set(['', 'not-set']);
@@ -26,6 +27,10 @@ export function productionProblems(): string[] {
     problems.push(
       'VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY must be set together for push notifications',
     );
+  // GST tax invoices for the fee and the subscription need the platform's GSTIN and address.
+  if (!isValidGstin(value('SUPPLIER_GSTIN').toUpperCase()))
+    problems.push('SUPPLIER_GSTIN must be a valid GSTIN for tax invoices');
+  if (missing('SUPPLIER_ADDRESS')) problems.push('SUPPLIER_ADDRESS is needed on tax invoices');
   if (missing('MSG91_AUTH_KEY') || missing('MSG91_TEMPLATE_ID'))
     problems.push('MSG91_AUTH_KEY and MSG91_TEMPLATE_ID are needed to send sign-in codes');
   if (value('SMS_PROVIDER') === 'log') problems.push('SMS_PROVIDER must be msg91 in production');
@@ -33,16 +38,6 @@ export function productionProblems(): string[] {
     problems.push(
       'MSG91_ORDER_CHANGED_TEMPLATE_ID is needed to tell customers about order changes',
     );
-  // Calling is optional ('off' hides the button), but once switched on it must be complete.
-  try {
-    const exotel = ['EXOTEL_SID', 'EXOTEL_API_KEY', 'EXOTEL_API_TOKEN', 'EXOTEL_CALLER_ID'];
-    if (env.callProvider() === 'exotel' && exotel.some(missing))
-      problems.push(
-        'EXOTEL_SID, EXOTEL_API_KEY, EXOTEL_API_TOKEN and EXOTEL_CALLER_ID are needed to place calls',
-      );
-  } catch (err) {
-    problems.push((err as Error).message);
-  }
   for (const [name, check] of [
     ['PLATFORM_FEE_PAISE', () => env.platformFeePaise()],
     ['UNPAID_ORDER_TTL_MINUTES', () => env.unpaidOrderTtlMinutes()],

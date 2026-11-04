@@ -36,6 +36,7 @@ const tabs: { to: string; key: string; end: boolean; roles: ShopRole[] }[] = [
   { to: '/shop/payments', key: 'payments', end: false, roles: OWNER },
   { to: '/shop/licence', key: 'licence', end: false, roles: [...OWNER, 'agent_setup'] },
   { to: '/shop/report', key: 'report', end: false, roles: OWNER },
+  { to: '/shop/invoices', key: 'invoices', end: false, roles: OWNER },
   { to: '/shop/poster', key: 'poster', end: false, roles: OWNER },
 ];
 

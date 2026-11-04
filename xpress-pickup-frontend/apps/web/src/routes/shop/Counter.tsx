@@ -6,7 +6,6 @@ import {
   formatPaise,
   parseOrderQr,
   rupeesToPaise,
-  staffPhoneMask,
   type PlanPayload,
   type StaffOrder,
 } from '@pataka/shared';
@@ -358,7 +357,7 @@ function OrderAtCounter({ initial, onNext }: { initial: StaffOrder; onNext: () =
               </p>
             </div>
             <p className="mt-2 text-sm text-white/80">
-              {t('counter.customer', { phone: staffPhoneMask(order.customer) })}
+              {t('counter.customer', { phone: order.customer })}
             </p>
             <CallCustomerButton orderId={order.id} canCall={order.canCall} className="mt-2" />
             {((order.arrivalStatus && order.arrivalStatus !== 'not_arrived') ||

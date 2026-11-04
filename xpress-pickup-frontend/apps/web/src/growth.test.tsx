@@ -57,8 +57,8 @@ const review: ReviewPage = {
   openFrom: '08:00',
   openTo: '22:00',
   items: [{ name: 'Rice 5 kg', packDesc: null, pricePaise: 4500, imageUrl: null }],
-  amountPaise: 199900,
-  gstPaise: 36000,
+  amountPaise: 211780,
+  gstPaise: 38120,
   subscription: null,
 };
 
@@ -209,8 +209,10 @@ describe('owner review link', () => {
     const calls = mockApi(null, { extra: { '/m/review/tok_aaaaaaaaaaaaaaaaaaaaaaaa': review } });
     renderAt('/m/review/tok_aaaaaaaaaaaaaaaaaaaaaaaa');
     expect(await screen.findByRole('heading', { name: 'Sri Ganesh Kirana' })).toBeInTheDocument();
-    expect(screen.getByText(/₹1,999 \+ GST ₹360 = ₹2,359/)).toBeInTheDocument();
-    const approve = screen.getByRole('button', { name: 'Approve and pay ₹2,359' });
+    expect(
+      screen.getByText(/Season subscription ₹2,499, including GST ₹381\.20/),
+    ).toBeInTheDocument();
+    const approve = screen.getByRole('button', { name: 'Approve and pay ₹2,499' });
     expect(approve).toBeDisabled();
     fireEvent.click(screen.getByRole('checkbox'));
     fireEvent.click(approve);
@@ -220,5 +222,45 @@ describe('owner review link', () => {
     });
     // never pay an agent in cash
     expect(screen.getAllByText(/Never pay an agent in cash/).length).toBeGreaterThan(0);
+  });
+});
+
+describe('GST tax invoices', () => {
+  const invoice = {
+    kind: 'platform_fee',
+    invoiceNo: 'XPF/2627/000042',
+    issuedAt: '2026-11-04T06:30:00.000Z',
+    supplier: {
+      name: 'Better Analytics Private Limited',
+      address: 'Hyderabad',
+      gstin: '36AAPFU0939F1ZW',
+      phone: null,
+      stateCode: '36',
+      state: 'Telangana',
+    },
+    recipient: { name: 'Priya', address: null, gstin: null, phone: '+919000000099' },
+    placeOfSupply: 'Telangana (36)',
+    lines: [
+      { description: 'Platform fee: order K7Q-2M9', sac: '996211', qty: 1, taxablePaise: 2542 },
+    ],
+    ratePercent: 18,
+    taxablePaise: 2542,
+    cgstPaise: 229,
+    sgstPaise: 229,
+    totalPaise: 3000,
+    reference: 'K7Q-2M9',
+    refunded: false,
+  };
+
+  it('the customer sees SAC 996211 and the GST inside the ₹30 fee', async () => {
+    const id = '00000000-0000-4000-8000-000000000099';
+    mockApi(account('customer'), { extra: { [`/orders/${id}/invoice`]: invoice } });
+    renderAt(`/orders/${id}/invoice`);
+    expect(await screen.findByRole('heading', { name: 'Tax invoice' })).toBeInTheDocument();
+    expect(screen.getByText(/XPF\/2627\/000042/)).toBeInTheDocument();
+    expect(screen.getByText('996211')).toBeInTheDocument();
+    expect(screen.getByText('CGST 9%')).toBeInTheDocument();
+    expect(screen.getByText('SGST 9%')).toBeInTheDocument();
+    expect(screen.getByText('₹30')).toBeInTheDocument();
   });
 });
