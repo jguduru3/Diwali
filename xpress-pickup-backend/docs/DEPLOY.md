@@ -167,7 +167,7 @@ workflow's smoke test fails, production is not fully configured: see Troubleshoo
    - Events: `payment_link.paid`, `payment_link.expired`, `payment_link.cancelled`,
      `refund.processed`, `refund.failed`
 3. **Check:** `https://<site>/api/health` returns `{"ok":true,"db":true,"config":true}`.
-4. **End-to-end money check:** onboard one real shop through an agent, pay its ₹2,359
+4. **End-to-end money check:** onboard one real shop through an agent, pay its ₹2,499
    subscription on the review link, and see it marked paid (Admin → Subscriptions / the agent's
    page). Sale money never goes through Razorpay: customers pay shops at the counter (G3).
 
@@ -231,7 +231,7 @@ deploy smoke test calls `/api/health`, so a deploy with a missing secret fails t
 - [ ] Written legal opinion on online ordering (L1) — only needed to switch `orderingEnabled` on.
 - [ ] MSG91 DLT sender + OTP template approved; `MSG91_AUTH_KEY` and template id set; test an OTP.
 - [ ] Razorpay account activated (KYC), live keys and webhook secret in GitHub secrets, webhook
-      added; pay one ₹2,359 subscription and refund one ₹30 fee to check the whole loop.
+      added; pay one ₹2,499 subscription and refund one ₹30 fee to check the whole loop.
 - [ ] GST: `SUPPLIER_GSTIN` and `SUPPLIER_ADDRESS` set; SAC 996211 on the fee and subscription
       invoices confirmed with the CA; open one invoice of each kind and check it.
 - [ ] `/api/health` on prod returns `{"ok":true,"db":true,"config":true}`.
