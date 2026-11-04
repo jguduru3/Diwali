@@ -1,0 +1,310 @@
+@import 'tailwindcss';
+
+@theme {
+  /* Better Analytics design system (v1, Oct 2026) on the quick-commerce layout (modelled on
+     Zepto's app): one confident blue, flat colour (no gradients), quiet surfaces, white cards
+     with a hairline border, pill buttons and 12–20px radii; frosted glass only on layers that
+     float over content (header, tab bar, cart bars, menus, sheet backdrops), as on iOS.
+     Token names are the app's older ones so every screen picks the system up; the comment on
+     each gives the design-system token. Telugu and Devanagari fall back to Noto Sans. */
+  --font-display:
+    'Plus Jakarta Sans', 'Noto Sans Telugu', 'Noto Sans Devanagari', system-ui, sans-serif;
+  --font-sans:
+    'Plus Jakarta Sans', 'Noto Sans Telugu', 'Noto Sans Devanagari', system-ui, -apple-system,
+    'Segoe UI', sans-serif;
+
+  --color-brand: #29a6f2; /* brand: display 24px+, accents, Bea's blue (2.7:1: never small text) */
+  --color-brand-050: #e6f4fd; /* brand-050: info banners, selected rows */
+  --color-brand-100: #c4e5fb; /* brand-100: hovered selected rows, soft chips */
+  --color-brand-300: #7cc8f7; /* brand-300: progress tracks, decorative tints */
+  --color-night: #073a5c; /* brand-900: dark identity blocks (hero, counter, gate) */
+  --color-plum: #0a65a1; /* action: primary buttons, links, active tabs, toggles (6.2:1) */
+  --color-plum-2: #08578a; /* action-hover */
+  --color-plum-3: #073a5c; /* brand-900 */
+  --color-gold: #29a6f2; /* brand */
+  --color-gold-light: #a9dbfa; /* text and accents on brand-900 (dark-theme brand-900) */
+  --color-gold-deep: #0a65a1; /* brand-700: coloured headings and labels */
+  --color-saffron: #a35a00; /* warning: offers, anomalies (5.2:1) */
+  --color-saffron-bg: #fdf1df; /* warning-bg */
+  --color-rose: #c42b2b; /* negative */
+  --color-ivory: #f5f8fb; /* surface-200: page ground, app chrome */
+  --color-sand: #e8eef4; /* surface-300: hover rows, input fills, skeletons */
+  --color-line: #d9e1e8; /* border: card outlines, dividers */
+  --color-line-strong: #7a8999; /* border-strong: input and control outlines */
+  --color-ink: #0f1b26; /* ink */
+  --color-muted: #4a5a69; /* ink-muted */
+  --color-subtle: #677685; /* ink-subtle: placeholders, timestamps */
+  --color-emerald: #157a46; /* positive: open now, savings */
+  --color-emerald-soft: #e3f5eb; /* positive-bg */
+  --color-danger: #c42b2b; /* negative */
+  --color-danger-soft: #fce8e8; /* negative-bg */
+
+  /* radius-xl 12 (controls), 2xl 16 (tiles), 3xl 20 (cards, sheets) */
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-3xl: 20px;
+
+  --shadow-card: 0 1px 2px rgb(15 27 38 / 0.04), 0 2px 8px rgb(15 27 38 / 0.04); /* shadow-sm */
+  --shadow-lift: 0 18px 44px -18px rgb(7 58 92 / 0.32); /* shadow-md: popovers, sheets, bars */
+  --shadow-glow: 0 8px 24px -8px rgb(41 166 242 / 0.45); /* Bea and brand-blue moments */
+
+  --animate-pop-in: pop-in 140ms ease-out;
+  @keyframes pop-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px) scale(0.97);
+    }
+  }
+}
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply bg-ivory font-sans text-ink antialiased;
+    font-size: 15px;
+    line-height: 24px;
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-display tracking-tight text-ink;
+  }
+  h1 {
+    letter-spacing: -0.02em;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-plum);
+    outline-offset: 2px;
+  }
+  button {
+    cursor: pointer;
+  }
+  /* Numbers that change line up (tabular figures). */
+  .tabular-nums,
+  .font-display {
+    font-variant-numeric: tabular-nums;
+  }
+  /* Keep focused controls clear of the sticky header and filter bar. */
+  main :where(button, a, input, select, textarea, label) {
+    scroll-margin-top: 16rem;
+    scroll-margin-bottom: 7rem;
+  }
+}
+
+@layer components {
+  /* Dark identity block: flat brand-900 (the design system allows no gradients). */
+  .night-sky {
+    background-color: var(--color-night);
+  }
+  /* Frosted glass for layers that float over content, as on iOS. Solid where the browser
+     cannot blur, so text always keeps its contrast. */
+  .glass-dark {
+    background-color: var(--color-night);
+  }
+  .glass {
+    background-color: #fff;
+  }
+  @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+    .glass-dark {
+      background-color: rgb(7 58 92 / 0.9);
+      -webkit-backdrop-filter: saturate(180%) blur(20px);
+      backdrop-filter: saturate(180%) blur(20px);
+    }
+    .glass {
+      background-color: rgb(255 255 255 / 0.72);
+      -webkit-backdrop-filter: saturate(180%) blur(20px);
+      backdrop-filter: saturate(180%) blur(20px);
+    }
+  }
+  /* Sheet and dialog backdrops dim and blur the page behind. */
+  dialog::backdrop {
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+  }
+  .gold-text {
+    color: var(--color-brand);
+  }
+  /* Card: white, hairline border, soft shadow, 20px radius. */
+  .card {
+    @apply rounded-3xl border border-line bg-white;
+    box-shadow: var(--shadow-card);
+  }
+  /* Mobile bottom navigation sits above the home indicator. */
+  .bottom-nav {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .hairline {
+    @apply border-line/70;
+  }
+}
+
+/* Grid columns may shrink below their content (scrolling chip rows inside them). */
+.grid > * {
+  min-width: 0;
+}
+
+/* Horizontal chip / tab rows scroll by swipe without a visible scrollbar. */
+.overflow-x-auto {
+  scrollbar-width: none;
+}
+.overflow-x-auto::-webkit-scrollbar {
+  display: none;
+}
+
+/* Rounded dropdown list that matches the field, where the browser supports a stylable select.
+   Other browsers keep their native picker. */
+@supports (appearance: base-select) {
+  .field-select,
+  .field-select::picker(select) {
+    appearance: base-select;
+  }
+  .field-select {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding-right: 1rem;
+  }
+  .field-select::picker-icon {
+    color: var(--color-muted);
+    transition: rotate 150ms ease-out;
+  }
+  .field-select:open::picker-icon {
+    rotate: 180deg;
+  }
+  .field-select::picker(select) {
+    margin-block: 0.375rem;
+    padding: 0.375rem;
+    border: 1px solid var(--color-line);
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: var(--shadow-lift);
+  }
+  .field-select option {
+    gap: 0.5rem;
+    padding: 0.625rem 0.75rem;
+    border-radius: 4px;
+    color: var(--color-ink);
+    font-size: 15px;
+  }
+  .field-select option:hover,
+  .field-select option:focus-visible {
+    background: var(--color-sand);
+    outline: none;
+  }
+  .field-select option:checked {
+    font-weight: 600;
+  }
+  .field-select option::checkmark {
+    color: var(--color-gold-deep);
+  }
+}
+
+/* Leaflet sits under sticky bars */
+.leaflet-container {
+  z-index: 0;
+  font-family: var(--font-sans);
+}
+
+/* Map markers (ShopMap.tsx) */
+.shop-pin svg {
+  overflow: visible;
+  filter: drop-shadow(0 4px 4px rgb(20 12 36 / 0.3));
+  transform-origin: 50% 94%;
+  transition: transform 150ms ease-out;
+}
+.shop-pin-shadow {
+  fill: rgb(20 12 36 / 0.25);
+}
+.shop-pin:hover svg,
+.shop-pin:focus-visible svg {
+  transform: translateY(-4px) scale(1.12);
+}
+.shop-pin-closed svg {
+  opacity: 0.9;
+}
+.you-pin-dot,
+.you-pin-halo {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+}
+.you-pin-dot {
+  background: var(--color-plum);
+  border: 3px solid #fff;
+  box-shadow: 0 2px 6px rgb(20 12 36 / 0.4);
+}
+.you-pin-halo {
+  background: rgb(10 101 161 / 0.35);
+  animation: you-pulse 2s ease-out infinite;
+}
+@keyframes you-pulse {
+  from {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  to {
+    transform: scale(3.2);
+    opacity: 0;
+  }
+}
+
+/* 58 mm thermal bill (SPEC §7). Only .print-area is printed. */
+@media print {
+  @page {
+    size: 58mm auto;
+    margin: 2mm;
+  }
+  body {
+    background: #fff !important;
+  }
+  body * {
+    visibility: hidden;
+  }
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+  .print-area {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 54mm;
+    font:
+      9pt/1.3 'Plus Jakarta Sans',
+      monospace;
+    color: #000;
+  }
+  .no-print {
+    display: none !important;
+  }
+  /* GST tax invoices print on A4, not the 58 mm thermal roll. */
+  .print-area.print-invoice {
+    page: invoice;
+    width: auto;
+    font:
+      10pt/1.4 'Plus Jakarta Sans',
+      sans-serif;
+    box-shadow: none;
+    border: 0;
+  }
+}
+@page invoice {
+  size: A4;
+  margin: 14mm;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* The merchant app (shop, gate, console) gets an ink header so staff can tell the two apps
+   apart; customers keep brand-900. */
+html[data-app='merchant'] header.glass-dark {
+  background-color: rgb(15 27 38 / 0.92);
+}

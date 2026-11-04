@@ -1,0 +1,33 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "FUNCTIONS_WORKER_RUNTIME": "node",
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "DATABASE_URL": "postgres://pataka:pataka@localhost:5433/pataka",
+    "DATABASE_SSL": "false",
+    "JWT_SECRET": "dev-only-change-me",
+    "OTP_DEV_MODE": "true",
+    "SEASON_END": "2026-11-20",
+    "TZ": "Asia/Kolkata",
+    "DEMO_MODE": "true",
+    "COOKIE_SECURE": "false",
+    "UPLOAD_DIR": "../../.uploads",
+    "ORDERING_ENABLED": "true",
+    "PAYMENT_PROVIDER": "mock",
+    "MOCK_PAYMENT_SECRET": "dev-only-mock-payment-secret-change-me",
+    "MERCHANT_SECRETS_KEY": "dev-only-merchant-secrets-key-change-me-0000",
+    "PUBLIC_ORIGIN": "http://localhost:5173",
+    "DB_POOL_MAX": "5",
+    "CATALOGUE_CACHE_SECONDS": "10",
+    "SMS_PROVIDER": "log",
+    "MSG91_ORDER_CHANGED_TEMPLATE_ID": "",
+    "PLATFORM_FEE_PAISE": "3000",
+    "UNPAID_ORDER_TTL_MINUTES": "60",
+    "ORDER_CHANGED_SMS_GAP_MINUTES": "15",
+    "VAPID_PUBLIC_KEY": "",
+    "VAPID_PRIVATE_KEY": "",
+    "SUPPLIER_NAME": "Better Analytics Private Limited",
+    "SUPPLIER_GSTIN": "",
+    "SUPPLIER_ADDRESS": ""
+  }
+}
